@@ -57,5 +57,5 @@ pip install -r requirements.txt
 - .env (API Key)
 - .vscode/ (개인 설정)
 - __pycache__/
-- 대용량 미디어 파일 (.mp4, .mp3 등)
+- 대용량 미디어 파일(.mp4, .mp3 등)
 
