@@ -7,5 +7,5 @@ import supabase
 import requests
 import openai
 
-print("모든 라이브러리 설치   완료!")
+print("모든 라이브러리 설치완료!")
 exit()
