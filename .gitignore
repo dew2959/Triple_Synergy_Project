@@ -1,0 +1,26 @@
+# 1. 가상환경 폴더 (가장 중요! 절대 올리지 마세요)
+triple/
+venv/
+.venv/
+env/
+Anaconda3/
+
+# 2. 파이썬 자동 생성 파일 (필요 없음)
+__pycache__/
+*.pyc
+
+# 3. 보안 파일 (API Key 해킹 방지)
+.env
+.env.local
+
+# 4. VS Code 개인 설정 (팀원마다 경로가 달라서 충돌 남)
+.vscode/
+
+# 5. 미디어 파일 (용량이 커서 깃허브에 올리면 안 됨)
+*.mp4
+*.mp3
+*.wav
+*.avi
+*.mkv
+output/
+downloads/
