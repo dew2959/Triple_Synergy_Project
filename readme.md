@@ -51,7 +51,7 @@ pip install -r requirements.txt
 <br />
 <br />
 
-## .gitignore 를 준수해주세요 
+## .gitignore
 ### 아래 파일들은 절대 GitHub에 올리지 않습니다. 
 - triple/, venv/, .venv/ (가상환경 폴더)
 - .env (API Key)

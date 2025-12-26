@@ -67,6 +67,7 @@ pyparsing==3.3.1
 pyroaring==1.0.3
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.1
+python-multipart==0.0.21
 realtime==2.27.0
 regex==2025.11.3
 requests==2.32.5
