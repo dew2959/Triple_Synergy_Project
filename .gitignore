@@ -24,3 +24,9 @@ __pycache__/
 *.mkv
 output/
 downloads/
+
+# 데이터 저장소 (폴더는 유지하되, 내용물은 무시)
+temp/*
+!temp/.gitkeep
+uploads/*
+!uploads/.gitkeep
