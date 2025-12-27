@@ -55,7 +55,6 @@ class Answer(Base):
     duration = Column(Integer)
     analysis_status = Column(Enum(AnswerAnalysisStatus), default=AnswerAnalysisStatus.PENDING)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-
     question = relationship("Question", back_populates="answers")
     
     # Analysis Relationships (1:1)
