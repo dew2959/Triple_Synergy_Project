@@ -40,8 +40,8 @@ class AnalysisMeta(BaseModel):
 class BaseAnalysisResult(BaseModel):
     """모든 분석 결과의 부모 클래스"""
     module: str             # "visual", "voice", "content"
-    sesson_id : str
-    answer_id: str          # DB PK
+    session_id : int
+    answer_id: int          # DB PK
     metrics: Dict[str, Any] = Field(default_factory=dict) # 핵심 지표
     feedback: AnalysisFeedback = Field(default_factory=AnalysisFeedback) # 위에서 정의한 클래스 재사용
     db: Dict[str, Any] = Field(default_factory=dict) # DB 저장용 추가 데이터가 있다면 사용
