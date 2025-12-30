@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Literal
 from pydantic import BaseModel, Field
 
 # 1. 공통 하위 컴포넌트 (부품)
@@ -27,18 +27,14 @@ class AnalysisFeedback(BaseModel):
 
 class BaseAnalysisResult(BaseModel):
     """모든 분석 결과의 부모 클래스"""
-    module: str             # "visual", "voice", "content"
+    module: Literal["visual", "voice", "content"]          
     session_id : Optional[int] = None
     answer_id: int          # DB PK
 
-    status: str = "DONE"             # DONE / FAILED
+    status: Literal["DONE", "FAILED"] = "DONE"             # DONE / FAILED
     metrics: Dict[str, Any] = Field(
         default_factory=dict,
         description="그래프/점수 계산용 핵심 지표")
 
     feedback: AnalysisFeedback = Field(default_factory=AnalysisFeedback) # 위에서 정의한 클래스 재사용
-    db: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="DB 컬럼에 직접 저장될 값")
-    
     error_msg: Optional[str] = None
