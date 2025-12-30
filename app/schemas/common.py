@@ -23,24 +23,12 @@ class AnalysisFeedback(BaseModel):
     script_modified: Optional[str] = None # (Content용) 모범 답안 -> DB 'model_answer'
 
 
-# 2. 메타 데이터 구조화 (New!)
-class AnalysisMeta(BaseModel):
-    """분석 메타 정보 (주석에 적어주신 내용 구조화)"""
-    input: Dict[str, Any] = Field(default_factory=dict) 
-    # 예: {"video_path": "...", "text_len": 812}
-    
-    runtime: Dict[str, Any] = Field(default_factory=dict)
-    # 예: {"started_at": "2025...", "elapsed_ms": 842}
-    
-    config: Dict[str, Any] = Field(default_factory=dict)
-    # 예: {"target_fps": 10, "min_event_sec": 0.5}
-
-# 3. 분석 결과 기본 껍데기 (Base)
+# 2. 분석 결과 기본 껍데기 (Base)
 
 class BaseAnalysisResult(BaseModel):
     """모든 분석 결과의 부모 클래스"""
     module: str             # "visual", "voice", "content"
-    session_id : int
+    session_id : Optional[int] = None
     answer_id: int          # DB PK
     metrics: Dict[str, Any] = Field(default_factory=dict) # 핵심 지표
     feedback: AnalysisFeedback = Field(default_factory=AnalysisFeedback) # 위에서 정의한 클래스 재사용
