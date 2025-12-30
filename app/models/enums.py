@@ -16,7 +16,8 @@ class AnswerAnalysisStatus(str, enum.Enum):
     PENDING = "PENDING"
     PROCESSING = "PROCESSING"
     DONE = "DONE"
-
+    FAILED = "FAILED"
+    
 class PoolCategory(str, enum.Enum):
     FIXED_INTRO = "FIXED_INTRO"
     RANDOM_BODY = "RANDOM_BODY"
