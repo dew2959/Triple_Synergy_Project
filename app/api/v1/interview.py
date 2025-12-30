@@ -21,7 +21,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
 # =========================================================
-#  Helper Function: 백그라운드 작업 (Celery 대용)
+#  Helper Function: 백그라운드 작업 
 # =========================================================
 def run_background_analysis(answer_id: int, file_path: str, db: Session):
     """
