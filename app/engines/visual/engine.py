@@ -1,5 +1,5 @@
 from typing import Any, Dict, List, Optional
-from engines.common.result import ok_result, error_result
+from app.engines.common.result import ok_result, error_result
 
 def run_visual(
     video_path: str,
@@ -11,6 +11,9 @@ def run_visual(
     events는 일단 []로 둔다(추후 확장).
     """
     try:
+        if not video_path:
+            raise ValueError("video_path is required")
+
         # TODO: 여기에서 네 mediapipe facemesh 코드로 실제 계산
         # 아래 값들은 지금은 더미 / 또는 계산 결과로 교체
         face_presence_ratio = 1.0

@@ -17,6 +17,7 @@ def ok_result(
         "events": events or [],
         "error": None,
     }
+    return out
 
 
 def error_result(
@@ -36,3 +37,4 @@ def error_result(
         "events": events or [],
         "error": {"type": err_type, "message": message},
     }
+    return out
