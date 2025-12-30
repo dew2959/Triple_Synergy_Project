@@ -5,6 +5,8 @@ from app.models.enums import AnswerAnalysisStatus
 
 # Repositories
 from app.repositories.answer_repo import answer_repo
+from app.schemas.visual import VisualResult, VisualMetrics, VisualDBPayload
+from app.schemas.common import AnalysisFeedback, TimeEvent
 #from app.repositories.visual_repo import visual_repo
 # from app.repositories.voice_repo import voice_repo (나중에 추가)
 # from app.repositories.content_repo import content_repo (나중에 추가)
@@ -14,10 +16,12 @@ from app.repositories.answer_repo import answer_repo
 
 class MockVisualRepo:
     def save_result(self, db: Session, result):
-        print(f"🛠️ [MOCK] Visual Repo가 작동하는 '척' 합니다.")
+        print(f"\n[MockRepo] 🛠️ 가짜 저장소가 데이터를 받았습니다!")
         print(f"   - 받은 데이터 점수: {result.score}")
-        print(f"   - 받은 피드백: {result.feedback.summary}")
-        # 실제 DB 저장은 안 하고, 그냥 성공했다고 침
+        
+        # ✅ .summary를 지우고 그냥 출력하세요. (이제 feedback은 그냥 글자니까요)
+        print(f"   - 받은 피드백: {result.feedback}") 
+        
         return True
 
 # 가짜 객체 생성 (이 변수 이름을 그대로 씀)
@@ -49,29 +53,48 @@ class AnalysisService:
         db.commit() # 상태 저장
 
         try:
-            # =================================================
-            # 2-1. 비주얼 분석 (Visual Engine)
-            # =================================================
             print("👁️ 비주얼 분석 시작...")
-            # analyzer = VisualAnalyzer()          # 엔진 생성
-            # result_dict = analyzer.analyze(file_path) # 분석 실행
             
-            # [테스트용 가짜 데이터] (엔진 완성 전까지 사용)
-            from app.schemas.visual import VisualResult
-            from app.schemas.common import AnalysisFeedback
-            
-            # 엔진에서 나왔다고 가정한 데이터
-            dummy_result = VisualResult(
-                module="visual",
-                answer_id=answer_id,
-                score=85,
-                head_center_ratio=0.9,
-                feedback=AnalysisFeedback(summary="시선 처리가 훌륭합니다.")
+            # 1. [AI 분석] Engine이 결과를 뱉음 (VisualResult 구조)
+            # (가짜 데이터 생성 예시)
+            visual_metrics = VisualMetrics(
+                score=88,
+                head_center_ratio=0.92,
+                events=[
+                    TimeEvent(type="eye_contact", start=0.0, end=5.0, duration=5.0),
+                    TimeEvent(type="look_away", start=5.1, end=6.0, duration=0.9)
+                ]
             )
             
-            # DB 저장 (Repository 이용)
-            visual_repo.save_result(db, dummy_result)
-            print("✅ 비주얼 분석 완료")
+            visual_result = VisualResult(
+                module="visual",
+                answer_id=answer_id,
+                metrics=visual_metrics,
+                feedback=AnalysisFeedback(
+                    summary="시선 처리가 안정적입니다.",
+                    good_points=["정면 응시"],
+                    bad_points=[]
+                )
+            )
+
+            # 2. [변환] Result(객체) -> Payload(DB용 Flat 데이터)
+            # Service가 이 '번역' 역할을 담당합니다.
+            visual_payload = VisualDBPayload(
+                answer_id=visual_result.answer_id,
+                score=visual_result.metrics.score,
+                head_center_ratio=visual_result.metrics.head_center_ratio,
+                
+                # [핵심] 리스트 내부의 객체(TimeEvent)를 dict로 변환 (model_dump 사용)
+                events_json=[event.model_dump() for event in visual_result.metrics.events],
+                
+                feedback=visual_result.feedback.summary,
+                good_points_json=visual_result.feedback.good_points,
+                bad_points_json=visual_result.feedback.bad_points
+            )
+
+            # 3. [저장] Repository에는 Payload를 전달
+            visual_repo.save_result(db, visual_payload)
+            print("✅ 비주얼 분석 저장 완료")
 
 
             # =================================================
