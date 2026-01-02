@@ -21,20 +21,3 @@ class AnalysisFeedback(BaseModel):
     good_points: List[str] = Field(default_factory=list)      # (선택) 잘한 점 -> DB 'good_points_json'
     bad_points: List[str] = Field(default_factory=list)       # (선택) 아쉬운 점 -> DB 'bad_points_json'
     script_modified: Optional[str] = None                     # (Content용) 모범 답안 -> DB 'model_answer'
-
-
-# 2. 분석 결과 기본 껍데기 (Base)
-
-class BaseAnalysisResult(BaseModel):
-    """모든 분석 결과의 부모 클래스"""
-    module: Literal["visual", "voice", "content"]          
-    session_id : Optional[int] = None
-    answer_id: int          # DB PK
-
-    status: Literal["DONE", "FAILED"] = "DONE"             # DONE / FAILED
-    metrics: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="그래프/점수 계산용 핵심 지표")
-
-    feedback: AnalysisFeedback = Field(default_factory=AnalysisFeedback) # 위에서 정의한 클래스 재사용
-    error_msg: Optional[str] = None

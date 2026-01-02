@@ -1,4 +1,3 @@
-# app/repositories/user_repo.py
 from psycopg2.extras import RealDictCursor
 from app.core.db import with_connection
 
