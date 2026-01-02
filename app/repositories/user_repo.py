@@ -1,28 +1,46 @@
-from typing import Optional
-from psycopg2.extensions import connection
-from .base import BaseRepository
+from psycopg2.extras import RealDictCursor
+from app.core.db import with_connection
 
-class UserRepository(BaseRepository):
-    
-    def create(self, conn: connection, email: str, password_hash: str, name: str) -> dict:
-        sql = """
-        INSERT INTO users (email, password_hash, name)
-        VALUES (%(email)s, %(password_hash)s, %(name)s)
-        RETURNING user_id, email, name, created_at
+
+class UserRepository:
+
+    @with_connection
+    def get_by_email(self, conn, email: str):
         """
-        # 비밀번호 해시는 여기서 만들지 않고 Service에서 받아서 저장만 함
-        return self.fetch_one(conn, sql, {
-            "email": email,
-            "password_hash": password_hash,
-            "name": name
-        })
+        로그인용: email로 사용자 조회
+        """
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT user_id, email, password_hash, name
+                FROM users
+                WHERE email = %s
+                """,
+                (email,)
+            )
+            return cur.fetchone()
 
-    def get_by_email(self, conn: connection, email: str) -> Optional[dict]:
-        sql = "SELECT * FROM users WHERE email = %(email)s"
-        return self.fetch_one(conn, sql, {"email": email})
+    @with_connection
+    def create_user(
+        self,
+        conn,
+        email: str,
+        password_hash: str,
+        name: str | None = None
+    ):
+        """
+        회원가입
+        """
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                INSERT INTO users (email, password_hash, name)
+                VALUES (%s, %s, %s)
+                RETURNING user_id, email, name
+                """,
+                (email, password_hash, name)
+            )
+            return cur.fetchone()
 
-    def get_by_id(self, conn: connection, user_id: int) -> Optional[dict]:
-        sql = "SELECT * FROM users WHERE user_id = %(user_id)s"
-        return self.fetch_one(conn, sql, {"user_id": user_id})
 
 user_repo = UserRepository()
