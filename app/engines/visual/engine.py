@@ -98,6 +98,8 @@ def run_visual(video_path: str) -> Dict[str, Any]:
 
         step = max(1, int(round(fps / max(1, TARGET_FPS))))
 
+        # 얼굴이 잡혔는지 -> bool
+        # 코의 위치 값 -> float
         face_present: List[bool] = []
         nose_x: List[Optional[float]] = []
 

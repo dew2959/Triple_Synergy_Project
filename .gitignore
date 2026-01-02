@@ -30,3 +30,6 @@ temp/*
 !temp/.gitkeep
 uploads/*
 !uploads/.gitkeep
+
+# MediaPipe model files
+app/engines/visual/models/*.task
