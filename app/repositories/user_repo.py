@@ -4,7 +4,6 @@ from app.core.db import with_connection
 
 class UserRepository:
 
-    @with_connection
     def get_by_email(self, conn, email: str):
         """
         로그인용: email로 사용자 조회
@@ -20,7 +19,6 @@ class UserRepository:
             )
             return cur.fetchone()
 
-    @with_connection
     def create_user(
         self,
         conn,

@@ -1,11 +1,9 @@
 from typing import Optional
 from psycopg2.extras import RealDictCursor
-from app.core.db import with_connection
 
 
 class AnswerRepository:
 
-    @with_connection
     def create(
         self,
         conn,
@@ -26,7 +24,6 @@ class AnswerRepository:
             )
             return cur.fetchone()
 
-    @with_connection
     def get_by_id(self, conn, answer_id: int):
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(
@@ -35,7 +32,6 @@ class AnswerRepository:
             )
             return cur.fetchone()
 
-    @with_connection
     def update_analysis_status(self, conn, answer_id: int, status: str):
         with conn.cursor() as cur:
             cur.execute(
@@ -47,7 +43,6 @@ class AnswerRepository:
                 (status, answer_id)
             )
 
-    @with_connection
     def update_stt_result(self, conn, answer_id: int, stt_text: str):
         with conn.cursor() as cur:
             cur.execute(
