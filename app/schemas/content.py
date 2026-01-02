@@ -3,10 +3,7 @@ from pydantic import BaseModel, Field
 from .common import AnalysisFeedback
 
 
-# =========================
 # 1. Content Metrics
-# =========================
-
 class ContentMetrics(BaseModel):
     """
     내용(텍스트) 분석 핵심 지표
@@ -22,10 +19,7 @@ class ContentMetrics(BaseModel):
     )
 
 
-# =========================
 # 2. API / Service 결과용
-# =========================
-
 class ContentResult(BaseModel):
     """
     내용 분석 결과 (API 응답 / 서비스 내부 전달용)
@@ -44,11 +38,7 @@ class ContentResult(BaseModel):
         description="개선된 모범 답변 (LLM 생성)"
     )
 
-
-# =========================
 # 3. DB 저장 Payload
-# =========================
-
 class ContentDBPayload(BaseModel):
     """
     answer_content_analysis 테이블 저장용
