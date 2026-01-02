@@ -14,6 +14,10 @@ from app.schemas.common import AnalysisFeedback, TimeEvent
 # Engines (AI 모듈) - 지금은 가짜(Mock)로라도 연결해둬야 함
 # from app.engines.visual.engine import VisualAnalyzer
 
+# Utils (영상 -> 음성 변환 모듈)
+from app.utils.media_utils import MediaUtils
+
+
 class MockVisualRepo:
     def save_result(self, db: Session, result):
         print(f"\n[MockRepo] 🛠️ 가짜 저장소가 데이터를 받았습니다!")
@@ -53,6 +57,8 @@ class AnalysisService:
         db.commit() # 상태 저장
 
         try:
+            print("🔊 오디오 추출 중...")
+            audio_path = MediaUtils.extract_audio(file_path)
             print("👁️ 비주얼 분석 시작...")
             
             # 1. [AI 분석] Engine이 결과를 뱉음 (VisualResult 구조)
@@ -145,14 +151,19 @@ if __name__ == "__main__":
     db = SessionLocal()
     
     # 2. 테스트할 답변 ID 설정 (아까 DB에 1번이나 5번 같은게 있어야 함)
-    TEST_ANSWER_ID = 5
-    TEST_FILE_PATH = "uploads\1. self_introduction_euiju(knee)_A.mp4" # 실제 파일 없어도 됨 (분석 로직만 테스트하니까)
-
-    print("🚀 테스트를 시작합니다...")
+    TEST_FILE_PATH = "uploads/1. self_introduction_euiju(knee)_A.mp4" 
     
-    try:
-        # 서비스 호출!
-        analysis_service.run_full_analysis(db, TEST_ANSWER_ID, TEST_FILE_PATH)
-    finally:
-        db.close()
-        print("🏁 테스트 종료")
+    # DB에 있는 아무 답변 ID (없으면 SQL로 하나 만드세요)
+    TEST_ANSWER_ID = 5 
+
+    print(f"🚀 테스트를 시작합니다... (파일: {TEST_FILE_PATH})")
+    import os
+    # 파일이 진짜 있는지 체크 (없으면 에러 나니까)
+    if not os.path.exists(TEST_FILE_PATH):
+        print(f"❌ 오류: '{TEST_FILE_PATH}' 파일이 없습니다. 영상을 넣어주세요!")
+    else:
+        try:
+            analysis_service.run_full_analysis(db, TEST_ANSWER_ID, TEST_FILE_PATH)
+        finally:
+            db.close()
+            print("🏁 테스트 종료")
