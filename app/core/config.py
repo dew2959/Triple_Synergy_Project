@@ -15,6 +15,12 @@ class Settings:
     DB_PASSWORD: str = os.getenv("DB_PASSWORD")
 
     # AI
-    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY")
+    OPENAI_API_KEY: str
+
+    class Config:
+        env_file = ".env"
+        env_file_encoding = "utf-8"
+        # .env에 있지만 여기 정의 안 된 변수는 에러 내지 말고 무시하라는 설정
+        extra = "ignore"
 
 settings = Settings()
