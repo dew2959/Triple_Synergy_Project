@@ -26,7 +26,7 @@ TARGET_FPS = 10
 # 코 중심 판단 구간 (코가 중앙이라고 볼 x 범위)
 NOSE_CENTER_RANGE: Tuple[float, float] = (0.40, 0.60)
 
-# 코 landmark index (네가 쓰던 그대로)
+# 코 landmark index
 NOSE_LANDMARK_IDX = 0
 
 # head_movement_std 정규화 기준(임시): 0.02 이상이면 1.0으로 포화
