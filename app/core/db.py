@@ -16,6 +16,7 @@ pool = ThreadedConnectionPool(
 def get_connection():
     conn = pool.getconn()
     conn.autocommit = False
+    conn.cursor_factory = RealDictCursor
     return conn
 
 def release_connection(conn):
