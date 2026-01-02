@@ -1,5 +1,5 @@
 from contextlib import contextmanager
-from app.core.database import get_connection, release_connection
+from app.core.db import get_connection, release_connection
 
 @contextmanager
 def transaction():
