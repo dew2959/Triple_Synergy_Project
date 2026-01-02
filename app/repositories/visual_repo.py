@@ -5,7 +5,6 @@ from app.core.db import with_connection
 
 class VisualRepository:
 
-    @with_connection
     def upsert_visual_result(self, conn, payload: Dict[str, Any]):
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(
