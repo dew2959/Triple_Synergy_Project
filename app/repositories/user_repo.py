@@ -18,7 +18,23 @@ class UserRepository:
             )
             return cur.fetchone()
 
-    def create_user(
+    def get_by_id(self, conn, user_id: int):
+        """
+        토큰 검증 후 사용자 ID로 조회
+        """
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT user_id, email, password_hash, name, created_at
+                FROM users
+                WHERE user_id = %s
+                """,
+                (user_id,)
+            )
+            return cur.fetchone()
+
+
+    def create(
         self,
         conn,
         email: str,
@@ -33,7 +49,7 @@ class UserRepository:
                 """
                 INSERT INTO users (email, password_hash, name)
                 VALUES (%s, %s, %s)
-                RETURNING user_id, email, name
+                RETURNING user_id, email, name, created_at
                 """,
                 (email, password_hash, name)
             )

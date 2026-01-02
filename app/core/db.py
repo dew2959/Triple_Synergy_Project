@@ -2,6 +2,8 @@ import psycopg2
 from psycopg2.pool import ThreadedConnectionPool
 from contextlib import contextmanager
 from app.core.config import settings
+from psycopg2.extras import RealDictCursor
+
 
 # 1. 커넥션 풀 생성 (멀티스레드 안전)
 pool = ThreadedConnectionPool(
@@ -22,6 +24,9 @@ def get_db_connection():
     """
     conn = pool.getconn()
     conn.autocommit = False
+
+    conn.cursor_factory = RealDictCursor
+
     try:
         yield conn      # 여기서 Service 로직이 실행됨
         conn.commit()   # 문제 없으면 커밋
