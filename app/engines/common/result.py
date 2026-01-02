@@ -22,7 +22,7 @@ def ok_result(
 
 def error_result(
     module: ModuleName,
-    err_type: str,
+    error_type: str,
     message: str,
     metrics: Optional[Dict[str, Any]] = None,
     events: Optional[List[Dict[str, Any]]] = None,
@@ -35,6 +35,6 @@ def error_result(
         "module": module,
         "metrics": metrics or {},
         "events": events or [],
-        "error": {"type": err_type, "message": message},
+        "error": {"type": error_type, "message": message},
     }
     return out
