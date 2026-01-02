@@ -1,9 +1,9 @@
 import psycopg2
-from psycopg2.pool import SimpleConnectionPool
+from psycopg2.pool import ThreadedConnectionPool
 from psycopg2.extras import RealDictCursor
 from app.core.config import settings
 
-pool = SimpleConnectionPool(
+pool = ThreadedConnectionPool(
     minconn=1,
     maxconn=10,
     host=settings.DB_HOST,
