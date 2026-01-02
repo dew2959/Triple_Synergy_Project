@@ -4,7 +4,7 @@ from fastapi import APIRouter, UploadFile, File, Depends, Form, BackgroundTasks,
 from sqlalchemy.orm import Session
 
 # 의존성 및 스키마
-from app.api.deps import get_db
+from app.api.deps import get_db_conn
 from app.schemas.interview import AnswerResponse
 
 # 레포지토리 (DB 담당)
@@ -40,7 +40,7 @@ def upload_interview_video(
     background_tasks: BackgroundTasks,
     question_id: int = Form(...),
     file: UploadFile = File(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db_conn)
 ):
     """
     [면접 영상 업로드]
@@ -84,7 +84,7 @@ def upload_interview_video(
 def retry_analysis(
     answer_id: int,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db_conn)
 ):
     """
     [재분석 요청] (관리자/디버깅용)

@@ -1,6 +1,5 @@
 from typing import Generator
 from psycopg2.extensions import connection
-
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import jwt, JWTError
@@ -8,25 +7,21 @@ from jose import jwt, JWTError
 from app.core.config import settings
 from app.repositories.user_repo import user_repo
 
-# [수정됨] db.py에서 함수 가져오기 (이제 여기서 직접 connect 안 함)
-from app.core.db import get_connection, release_connection
-
+# [수정] 방금 만든 Context Manager 하나만 가져옵니다.
+from app.core.db import get_db_connection
 
 # =========================================================
-# 1. DB 연결 (Dependency) - Pool 사용
+# 1. DB 연결 (Dependency) - Context Manager 재사용
 # =========================================================
 def get_db_conn() -> Generator:
     """
-    API 요청 시 Pool에서 연결을 빌려오고(yield), 
-    요청이 끝나면 다시 반납(putconn)합니다.
+    FastAPI 의존성 주입용 함수
+    get_db_connection()이라는 Context Manager를 열어서
+    그 안의 conn을 yield 해줍니다.
     """
-    conn = None
-    try:
-        conn = get_connection() # 1. 빌린다 (db.py 함수 사용)
-        yield conn              # 2. 쓴다
-    finally:
-        if conn:
-            release_connection(conn) # 3. 반납한다
+    with get_db_connection() as conn:
+        yield conn
+    # with 문을 빠져나오면 자동으로 finally가 실행되어 반납됩니다.
 
 
 # =========================================================

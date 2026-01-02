@@ -1,26 +1,47 @@
 import os
-from dotenv import load_dotenv
+from pydantic_settings import BaseSettings
 
-load_dotenv()
-
-class Settings:
+class Settings(BaseSettings):
+    # =========================================================
+    # 1. 기본 프로젝트 설정
+    # =========================================================
     PROJECT_NAME: str = "Interview Analysis AI"
     VERSION: str = "1.0.0"
 
-    # Database (Raw SQL 기준)
-    DB_HOST: str = os.getenv("DB_HOST")
-    DB_PORT: int = int(os.getenv("DB_PORT", 5432))
-    DB_NAME: str = os.getenv("DB_NAME")
-    DB_USER: str = os.getenv("DB_USER")
-    DB_PASSWORD: str = os.getenv("DB_PASSWORD")
+    # =========================================================
+    # 2. 데이터베이스 설정 (DB 연결용)
+    # =========================================================
+    DB_HOST: str = "localhost"
+    DB_PORT: int = 5432
+    DB_USER: str = "postgres"
+    DB_PASSWORD: str = "password"
+    DB_NAME: str = "triple_synergy"
 
-    # AI
-    OPENAI_API_KEY: str
+    # [핵심] DB 연결 주소 자동 생성 (db.py에서 이걸 씁니다)
+    @property
+    def DATABASE_URL(self) -> str:
+        return f"postgresql://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
 
+    # =========================================================
+    # 3. 보안 및 인증 (JWT) - 여기가 없어서 에러가 났던 것!
+    # =========================================================
+    SECRET_KEY: str = "CHANGE_THIS_TO_YOUR_SECRET_KEY"  # .env에 있으면 덮어씌워짐
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30  # 토큰 만료 시간 (30분)
+
+    # =========================================================
+    # 4. 외부 AI API 키
+    # =========================================================
+    OPENAI_API_KEY: str = "" # .env에서 자동으로 읽어옴
+
+    # =========================================================
+    # 설정 파일 로드 규칙
+    # =========================================================
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
-        # .env에 있지만 여기 정의 안 된 변수는 에러 내지 말고 무시하라는 설정
+        # .env에 모르는 변수가 있어도 에러 내지 않음
         extra = "ignore"
 
+# 설정 인스턴스 생성
 settings = Settings()
