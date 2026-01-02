@@ -1,5 +1,5 @@
-from pydantic import BaseSettings, Field
-
+from pydantic_settings import BaseSettings 
+from pydantic import Field
 class Settings(BaseSettings):
     # Project
     PROJECT_NAME: str = "Interview Analysis AI"
@@ -17,5 +17,8 @@ class Settings(BaseSettings):
 
     class Config:
         env_file = ".env"
+        env_file_encoding = "utf-8"
+        # .env에 있지만 여기 정의 안 된 변수는 에러 내지 말고 무시하라는 설정
+        extra = "ignore"
 
 settings = Settings()
