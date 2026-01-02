@@ -1,10 +1,12 @@
-# app/api/deps.py (먼저 작성)
+# app/api/deps.py
+import psycopg2
 from typing import Generator
-from app.core.db import SessionLocal
+# db_config는 프로젝트 설정에 맞게 가져오세요
+from app.core.config import settings 
 
-def get_db() -> Generator:
+def get_db_conn() -> Generator:
     try:
-        db = SessionLocal()
-        yield db
+        conn = psycopg2.connect(settings.DATABASE_URL)
+        yield conn
     finally:
-        db.close()
+        conn.close()
