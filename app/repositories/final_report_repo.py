@@ -1,10 +1,8 @@
 from typing import Dict, Any
 from psycopg2.extras import RealDictCursor
-from app.core.db import with_connection
 
 class FinalReportRepository:
 
-    @with_connection
     def upsert_final_report(self, conn, payload: Dict[str, Any]):
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(
