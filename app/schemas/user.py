@@ -2,28 +2,24 @@ from pydantic import BaseModel, EmailStr
 from datetime import datetime
 from typing import Optional
 
-# [회원가입/로그인 요청] (Input)
-class UserCreate(BaseModel):
+# 1. 공통 속성
+class UserBase(BaseModel):
     email: EmailStr
-    password: str
     name: Optional[str] = None
 
+# 2. 회원가입 요청
+class UserCreate(UserBase):
+    password: str
+
+# 3. [수정] 로그인 요청 
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
 
-class UserProfile(BaseModel):
+# 4. 응답용
+class UserResponse(UserBase):
     user_id: int
-    email: str
-    name: Optional[str]
-    created_at: datetime
-
-# [사용자 정보 응답] (Output) - 비밀번호 절대 제외!
-class UserResponse(BaseModel):
-    user_id: int
-    email: EmailStr
-    name: str
-    created_at: datetime
+    created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

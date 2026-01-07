@@ -48,7 +48,7 @@ class ContentDBPayload(BaseModel):
     logic_score: int
     job_fit_score: int
     filler_count: int
-
+    time_management_score: int
     keywords_json: List[str] = Field(default_factory=list)
 
     feedback: str
