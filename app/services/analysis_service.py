@@ -1,8 +1,13 @@
 import traceback
+import json  # 👈 [필수] 이거 꼭 추가해주세요!
 from psycopg2.extensions import connection  
 from app.utils.media_utils import MediaUtils
 
+# Engines
 from app.engines.visual.engine import run_visual
+from app.engines.voice.engine import run_voice
+from app.engines.stt.engine import run_stt
+from app.engines.llm.engine import run_content
 
 # Repositories 
 from app.repositories.answer_repo import answer_repo
@@ -12,18 +17,21 @@ from app.repositories.content_repo import content_repo
 
 # Schemas
 from app.schemas.visual import VisualDBPayload
+from app.schemas.voice import VoiceDBPayload
+from app.schemas.content import ContentDBPayload
+
 
 class AnalysisService:
     def run_full_analysis(self, conn: connection, answer_id: int, file_path: str):
         print(f"🎬 [Analysis Start] Answer ID: {answer_id}")
         
-        # 1. 답변 조회 (이제 dict를 반환함)
+        # 1. 답변 조회
         answer = answer_repo.get_by_id(conn, answer_id)
         if not answer:
             print("❌ 답변을 찾을 수 없습니다.")
             return
 
-        # 2. 상태 변경 (ORM이 아니므로 명시적 update 함수 호출 필요)
+        # 2. 상태 변경
         print(f"🔄 상태 변경: PENDING -> PROCESSING")
         answer_repo.update_analysis_status(conn, answer_id, "PROCESSING")
 
@@ -35,68 +43,143 @@ class AnalysisService:
             # =================================================
             # 1. 비주얼 분석
             # =================================================
-            print(f"👁️ 비주얼 분석 시작 (파일: {file_path})...")
-            
-            # [Step 1] 엔진 실행
+            print(f"👁️ 비주얼 분석 시작...")
             visual_output = run_visual(file_path)
-            if visual_output.get("error"):
-                error_info = visual_output["error"]
-                print(f"❌ 비주얼 분석 엔진 에러: {error_info}")
-                # 에러가 나도 멈출지, 그냥 넘어갈지 결정 (일단 로그 찍고 넘어감)
             
+            if visual_output.get("error"):
+                print(f"❌ 비주얼 분석 에러: {visual_output['error']}")
             else:
-                # [Step 3] 결과 해석 (Metrics -> Score/Feedback 변환)
-                # 엔진은 '수치'만 주므로, 서비스가 '평가'를 내려야 합니다.
-                metrics = visual_output.get("metrics", {})
+                v_metrics = visual_output.get("metrics", {})
                 
-                # 값 가져오기 (없으면 기본값)
-                face_ratio = metrics.get("face_presence_ratio", 0.0)
-                center_ratio = metrics.get("head_center_ratio", 0.0)
-                movement_std = metrics.get("head_movement_std", 0.0)
-                
-                # --- 간단한 점수 계산 로직 (임시) ---
-                # 기본 100점에서 감점 방식
+                # 점수 계산 로직
+                face_ratio = v_metrics.get("face_presence_ratio", 0.0)
+                center_ratio = v_metrics.get("head_center_ratio", 0.0)
                 score = 100
                 feedbacks = []
                 
-                if face_ratio < 0.8:
-                    score -= 20
-                    feedbacks.append("화면에서 얼굴이 자주 사라집니다. 카메라를 정면으로 응시해주세요.")
+                if face_ratio < 0.8: score -= 20; feedbacks.append("화면 이탈이 잦습니다.")
+                if center_ratio < 0.6: score -= 10; feedbacks.append("고개가 중앙에서 벗어났습니다.")
                 
-                if center_ratio < 0.6:
-                    score -= 10
-                    feedbacks.append("고개가 중앙에서 많이 벗어났습니다. 자세를 바르게 해주세요.")
-                    
-                if movement_std > 0.5: # 기준값은 테스트하며 조정 필요
-                    score -= 10
-                    feedbacks.append("고개 움직임이 많아 산만해 보일 수 있습니다.")
-                
-                if score == 100:
-                    feedbacks.append("시선 처리와 자세가 매우 훌륭합니다!")
-
-                final_feedback = " ".join(feedbacks)
-                final_score = max(0, score) # 음수 방지
-
-                # [Step 4] DB Payload 생성
                 visual_payload = VisualDBPayload(
                     answer_id=answer_id,
-                    score=final_score,
-                    head_center_ratio=center_ratio, # DB 컬럼에 있는 것만 넣음
-                    feedback=final_feedback,
-                    good_points_json=[], # 엔진에서 아직 안 줌
-                    bad_points_json=[],  # 엔진에서 아직 안 줌
-                    # events_json=visual_output.get("events", []) # DB에 컬럼 있으면 추가
+                    score=max(0, score),
+                    head_center_ratio=center_ratio,
+                    feedback=" ".join(feedbacks) or "자세가 훌륭합니다.",
+                    good_points_json=[],
+                    bad_points_json=[],
                 )
                 
-                # [Step 5] DB 저장
-                visual_repo.upsert_visual_result(conn, visual_payload.model_dump())
-                print(f"✅ 비주얼 분석 저장 완료 (점수: {final_score})")
+                # 🟡 [수정] Service에서 JSON 문자열로 변환
+                visual_data = visual_payload.model_dump()
+                visual_data['good_points_json'] = json.dumps(visual_data['good_points_json'])
+                visual_data['bad_points_json'] = json.dumps(visual_data['bad_points_json'])
+                
+                visual_repo.upsert_visual_result(conn, visual_data)
+                print(f"✅ 비주얼 분석 저장 완료")
 
 
             # =================================================
-            # 2. 음성 분석 & 3. 내용 분석 (위와 동일한 패턴)
+            # 2. STT 및 음성 분석
             # =================================================
-            # ... (Voice, Content도 model_dump() 해서 upsert 호출) ...
+            print(f"🗣️ STT 변환 시작...")
+            stt_output = run_stt(audio_path)
+            stt_text = ""
+            stt_segments = []
+            if not stt_output.get("error"):
+                stt_text = stt_output["metrics"].get("text", "")
+                stt_segments = stt_output["metrics"].get("segments", [])
+
+            print(f"🎙️ 음성 분석 시작...")
+            voice_output = run_voice(audio_path, stt_text=stt_text, stt_segments=stt_segments)
+            
+            if voice_output.get("error"):
+                 print(f"❌ 음성 분석 에러: {voice_output['error']}")
+            else:
+                metrics = voice_output.get("metrics", {})
+                
+                avg_wpm = metrics.get("avg_wpm") or 0
+                max_wpm = metrics.get("max_wpm") or 0
+                silence_count = metrics.get("silence_count", 0)
+                avg_pitch = metrics.get("avg_pitch") or 0.0
+                
+                v_score = 100
+                good_points = []
+                bad_points = []
+                
+                if avg_wpm < 80: v_score -= 10; bad_points.append("말이 느립니다.")
+                elif avg_wpm > 180: v_score -= 10; bad_points.append("말이 빠릅니다.")
+                else: good_points.append("속도가 적절합니다.")
+
+                if silence_count > 5: v_score -= 10; bad_points.append("침묵이 잦습니다.")
+                else: good_points.append("자연스럽게 말했습니다.")
+
+                voice_payload = VoiceDBPayload(
+                    answer_id=answer_id,
+                    score=max(0, v_score),
+                    avg_wpm=int(avg_wpm),
+                    max_wpm=int(max_wpm),
+                    silence_count=int(silence_count),
+                    avg_silence_length=0.0,
+                    avg_pitch=float(avg_pitch),
+                    max_pitch=0.0,
+                    silence_timeline_json=[],
+                    feedback=" ".join(bad_points) or "훌륭합니다.",
+                    good_points_json=good_points,
+                    bad_points_json=bad_points
+                )
+                
+                # 🟡 [수정] Service에서 JSON 문자열로 변환 후 Repo에 전달
+                voice_data = voice_payload.model_dump()
+                voice_data['silence_timeline_json'] = json.dumps(voice_data['silence_timeline_json'])
+                voice_data['good_points_json'] = json.dumps(voice_data['good_points_json'])
+                voice_data['bad_points_json'] = json.dumps(voice_data['bad_points_json'])
+
+                voice_repo.upsert_voice_result(conn, voice_data)
+                print(f"✅ 음성 분석 저장 완료")
+
+
+            # =================================================
+            # 3. 내용 분석 (LLM)
+            # =================================================
+            print(f"📝 내용 분석 시작 (LLM)...")
+            
+            fillers = ["음", "어", "그", "아"]
+            filler_count = 0
+            if stt_text:
+                for f in fillers: filler_count += stt_text.count(f)
+
+            question_text = answer.get("question_content", "") 
+            duration_sec = stt_segments[-1]["end"] if stt_segments else 0.0
+
+            content_output = run_content(
+                answer_text=stt_text,
+                question_text=question_text,
+                duration_sec=duration_sec
+            )
+
+            if content_output.get("error"):
+                print(f"❌ 내용 분석 에러: {content_output['error']}")
+            else:
+                c_metrics = content_output.get("metrics", {})
+                
+                content_payload = ContentDBPayload(
+                    answer_id=answer_id,
+                    logic_score=c_metrics.get("logic_score", 0),
+                    job_fit_score=c_metrics.get("job_fit_score", 0),
+                    time_management_score=c_metrics.get("time_management_score", 0),
+                    filler_count=filler_count,
+                    keywords_json=c_metrics.get("keywords", []),
+                    feedback=c_metrics.get("feedback", ""),
+                    model_answer=c_metrics.get("model_answer"),
+                    summarized_text=None
+                )
+                
+                # 🟡 [수정] Service에서 JSON 문자열로 변환
+                content_data = content_payload.model_dump()
+                content_data['keywords_json'] = json.dumps(content_data['keywords_json'])
+                
+                content_repo.upsert_content_result(conn, content_data)
+                print(f"✅ 내용 분석 저장 완료")
 
 
             # 4. 최종 완료 처리
@@ -106,56 +189,6 @@ class AnalysisService:
         except Exception as e:
             print(f"💥 [Analysis Failed] Error: {e}")
             traceback.print_exc()
-            # 실패 상태 업데이트
             answer_repo.update_analysis_status(conn, answer_id, "FAILED")
 
 analysis_service = AnalysisService()
-
-
-
-
-# 파일 상단에 import 추가 필요 (이미 있다면 패스)
-import psycopg2
-from app.core.config import settings
-# 만약 run_full_analysis가 같은 파일 내에 있는 함수라면:
-# import 할 필요 없이 바로 호출 가능합니다.
-
-if __name__ == "__main__":
-    conn = None
-    try:
-        # 1. DB 직접 연결 (Generator 대신 직접 connect 사용)
-        # Settings에 정의된 정보로 직접 연결합니다.
-        print("DB 연결 시도...")
-        conn = psycopg2.connect(
-            host=settings.DB_HOST,
-            port=settings.DB_PORT,
-            user=settings.DB_USER,
-            password=settings.DB_PASSWORD,
-            dbname=settings.DB_NAME
-        )
-        print("DB 연결 성공")
-
-        # 2. 테스트 데이터 설정
-        TEST_FILE_PATH = "uploads/1. self_introduction_euiju(knee)_A.mp4" 
-        TEST_ANSWER_ID = 5 
-
-        # 3. 분석 로직 실행
-        # (이 코드가 analysis_service.py 안에 있다면 'analysis_service.' 접두어 없이 함수명만 쓰세요)
-        # 만약 클래스 메서드라면 클래스 인스턴스화가 필요할 수 있습니다.
-        analysis_service.run_full_analysis(conn, TEST_ANSWER_ID, TEST_FILE_PATH)
-        
-        # 4. 트랜잭션 확정
-        conn.commit()
-        print("분석 완료 및 커밋 성공")
-
-    except Exception as e:
-        # 에러 발생 시 롤백
-        if conn:
-            conn.rollback()
-        print(f"테스트 실패: {e}")
-        
-    finally:
-        # 5. 연결 종료
-        if conn:
-            conn.close()
-            print("DB 연결 종료")
