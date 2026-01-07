@@ -8,7 +8,7 @@ dependencies:
   - ca-certificates=2025.11.12=h4c7d964_0
   - cairo=1.18.4=h477c42c_1
   - dav1d=1.2.1=hcfcfb64_0
-  - ffmpeg=8.0.1=gpl_ha36faaf_108
+  - ffmpeg=8.0.1=gpl_h74fd8f1_908
   - font-ttf-dejavu-sans-mono=2.37=hab24e00_0
   - font-ttf-inconsolata=3.000=h77eed37_0
   - font-ttf-source-code-pro=2.038=h77eed37_0
@@ -87,7 +87,6 @@ dependencies:
       - annotated-types==0.7.0
       - anyio==4.12.0
       - audioread==3.1.0
-      - bcrypt==4.0.1
       - cachetools==6.2.4
       - certifi==2025.11.12
       - cffi==2.0.0
@@ -98,9 +97,6 @@ dependencies:
       - decorator==4.4.2
       - deprecation==2.1.0
       - distro==1.9.0
-      - dnspython==2.8.0
-      - ecdsa==0.19.1
-      - email-validator==2.3.0
       - fastapi==0.127.0
       - filelock==3.20.1
       - flatbuffers==25.12.19
@@ -137,7 +133,6 @@ dependencies:
       - openai==2.14.0
       - openai-whisper==20250625
       - opencv-python==4.12.0.88
-      - passlib==1.7.4
       - pillow==11.3.0
       - platformdirs==4.5.1
       - pooch==1.8.2
@@ -145,11 +140,9 @@ dependencies:
       - proglog==0.1.12
       - propcache==0.4.1
       - psycopg2-binary==2.9.11
-      - pyasn1==0.6.1
       - pycparser==2.23
       - pydantic==2.12.5
       - pydantic-core==2.41.5
-      - pydantic-settings==2.12.0
       - pygments==2.19.2
       - pyiceberg==0.10.0
       - pyjwt==2.10.1
@@ -157,13 +150,10 @@ dependencies:
       - pyroaring==1.0.3
       - python-dateutil==2.9.0.post0
       - python-dotenv==1.2.1
-      - python-jose==3.5.0
-      - python-multipart==0.0.21
       - realtime==2.27.0
       - regex==2025.11.3
       - requests==2.32.5
       - rich==14.2.0
-      - rsa==4.9.1
       - scikit-learn==1.8.0
       - scipy==1.16.3
       - six==1.17.0
