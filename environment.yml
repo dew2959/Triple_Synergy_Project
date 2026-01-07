@@ -175,6 +175,7 @@ dependencies:
       - sqlalchemy==2.0.45
       - starlette==0.50.0
       - storage3==2.27.0
+      - streamlit==1.52.2
       - strenum==0.4.15
       - strictyaml==1.7.3
       - supabase==2.27.0
