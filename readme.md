@@ -1,7 +1,12 @@
-# 🚀 Triple Synergy Project
+# 🚀 Triple Synergy Project - AI 모의면접
 
 이 프로젝트는 Python 3.11 환경에서 동작하며, `Whisper`, `Mediapipe`, `Librosa`, `MoviePy` 등을 사용합니다.
 팀원 간 환경 충돌(DLL 오류, 버전 호환성 등)을 방지하기 위해 **반드시 아래 가이드에 따라 설치**해 주세요.
+
+## 📋 프로젝트 구조
+
+- **백엔드**: FastAPI (Python) - `main.py`
+- **프론트엔드**: Streamlit (Python) - `streamlit_app.py`, `pages/` 폴더
 
 ## 🛠️ 사전 준비 (Prerequisites)
 * **Anaconda (또는 Miniconda)** 가 설치되어 있어야 합니다.
