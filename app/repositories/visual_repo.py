@@ -27,5 +27,13 @@ class VisualRepository:
             )
             return cur.fetchone()
 
+    # 기존 클래스 내부에 추가
+    def get_by_answer_id(self, conn, answer_id: int):
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                "SELECT * FROM answer_visual_analysis WHERE answer_id = %s",
+                (answer_id,)
+            )
+            return cur.fetchone()
 
 visual_repo = VisualRepository()
