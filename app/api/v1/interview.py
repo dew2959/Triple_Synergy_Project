@@ -40,7 +40,7 @@ def upload_interview_video(
     background_tasks: BackgroundTasks,
     question_id: int = Form(...),
     file: UploadFile = File(...),
-    conn: connection = Depends(get_db_conn) # [수정] db -> conn으로 이름 통일
+    conn: connection = Depends(get_db_conn)
 ):
     """
     [면접 영상 업로드]
@@ -62,10 +62,9 @@ def upload_interview_video(
     
     conn.commit()
     # 3. 백그라운드 분석 작업 등록
-    # [중요] conn을 넘기지 않습니다! (함수가 알아서 만듦)
     background_tasks.add_task(
         run_background_analysis, 
-        new_answer['answer_id'], # [수정] dict 접근 방식 사용
+        new_answer['answer_id'],
         file_path
     )
     
