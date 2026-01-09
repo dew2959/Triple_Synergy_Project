@@ -44,8 +44,11 @@ with st.form("login_form"):
                 st.success("로그인 성공!")
                 st.info("프로필 설정 페이지로 이동합니다...")
                 st.switch_page("pages/4_👤_온보딩.py")
+
+
             except Exception as e:
                 st.error(f"로그인 실패: {repr(e)}")
+
 
 st.markdown("---")
 st.markdown("계정이 없으신가요? [회원가입 페이지로 이동](pages/2_📝_회원가입.py)")

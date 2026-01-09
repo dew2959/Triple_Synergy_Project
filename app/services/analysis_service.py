@@ -1,6 +1,8 @@
 import traceback
-import json  # 👈 [필수] 이거 꼭 추가해주세요!
-from psycopg2.extensions import connection  
+import json
+import os
+from psycopg2.extensions import connection
+from psycopg2.extras import RealDictCursor
 from app.utils.media_utils import MediaUtils
 
 # Engines
@@ -9,19 +11,67 @@ from app.engines.voice.engine import run_voice
 from app.engines.stt.engine import run_stt
 from app.engines.llm.engine import run_content
 
-# Repositories 
+# Repositories
 from app.repositories.answer_repo import answer_repo
 from app.repositories.visual_repo import visual_repo
 from app.repositories.voice_repo import voice_repo
 from app.repositories.content_repo import content_repo
+# [NEW] Final Report Repository
+from app.repositories.final_report_repo import final_report_repo
+
+# Services
+# [NEW] Final Report Service
+from app.services.final_report_service import FinalReportService
 
 # Schemas
 from app.schemas.visual import VisualDBPayload
 from app.schemas.voice import VoiceDBPayload
 from app.schemas.content import ContentDBPayload
 
+# [NEW] LLM Client Adapter for FinalReportService
+class OpenAIClientAdapter:
+    def generate(self, prompt: str, temperature: float = 0.2) -> str:
+        """
+        FinalReportService가 사용하는 인터페이스(generate)를 
+        OpenAI SDK에 맞춰 구현
+        """
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            response = client.chat.completions.create(
+                model="gpt-4o", # 또는 gpt-3.5-turbo
+                messages=[{"role": "user", "content": prompt}],
+                temperature=temperature,
+                response_format={"type": "json_object"} # JSON 강제
+            )
+            return response.choices[0].message.content or "{}"
+        except Exception as e:
+            print(f"LLM Error: {e}")
+            return "{}"
+
+# 인스턴스 생성
+llm_client = OpenAIClientAdapter()
+final_report_service = FinalReportService(llm_client)
+
 
 class AnalysisService:
+    def _get_session_id(self, conn: connection, answer_id: int) -> int:
+        """
+        answer_id를 통해 session_id를 역추적하는 헬퍼 함수
+        (answers -> questions -> interview_sessions)
+        """
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT q.session_id 
+                FROM answers a
+                JOIN questions q ON a.question_id = q.question_id
+                WHERE a.answer_id = %s
+            """, (answer_id,))
+            row = cur.fetchone()
+            if row:
+                return row['session_id']
+            return None
+
     def run_full_analysis(self, conn: connection, answer_id: int, file_path: str):
         print(f"🎬 [Analysis Start] Answer ID: {answer_id}")
         
@@ -34,6 +84,11 @@ class AnalysisService:
         # 2. 상태 변경
         print(f"🔄 상태 변경: PENDING -> PROCESSING")
         answer_repo.update_analysis_status(conn, answer_id, "PROCESSING")
+
+        # 엔진 결과 담을 변수 초기화
+        visual_output = {}
+        voice_output = {}
+        content_output = {}
 
         try:
             # 0. 오디오 추출
@@ -51,7 +106,7 @@ class AnalysisService:
             else:
                 v_metrics = visual_output.get("metrics", {})
                 
-                # 점수 계산 로직
+                # 비주얼 점수 계산 로직
                 face_ratio = v_metrics.get("face_presence_ratio", 0.0)
                 center_ratio = v_metrics.get("head_center_ratio", 0.0)
                 score = 100
@@ -69,12 +124,15 @@ class AnalysisService:
                     bad_points_json=[],
                 )
                 
-                # 🟡 [수정] Service에서 JSON 문자열로 변환
+                # Service에서 JSON 문자열로 변환 (기존 로직 유지)
                 visual_data = visual_payload.model_dump()
                 visual_data['good_points_json'] = json.dumps(visual_data['good_points_json'])
                 visual_data['bad_points_json'] = json.dumps(visual_data['bad_points_json'])
                 
                 visual_repo.upsert_visual_result(conn, visual_data)
+                
+                # [중요] FinalReportService에 넘겨주기 위해 score를 metrics에 주입
+                visual_output["metrics"]["score"] = max(0, score)
                 print(f"✅ 비주얼 분석 저장 완료")
 
 
@@ -128,13 +186,15 @@ class AnalysisService:
                     bad_points_json=bad_points
                 )
                 
-                # 🟡 [수정] Service에서 JSON 문자열로 변환 후 Repo에 전달
                 voice_data = voice_payload.model_dump()
                 voice_data['silence_timeline_json'] = json.dumps(voice_data['silence_timeline_json'])
                 voice_data['good_points_json'] = json.dumps(voice_data['good_points_json'])
                 voice_data['bad_points_json'] = json.dumps(voice_data['bad_points_json'])
 
                 voice_repo.upsert_voice_result(conn, voice_data)
+                
+                # [중요] FinalReportService용 점수 주입
+                voice_output["metrics"]["score"] = max(0, v_score)
                 print(f"✅ 음성 분석 저장 완료")
 
 
@@ -162,11 +222,19 @@ class AnalysisService:
             else:
                 c_metrics = content_output.get("metrics", {})
                 
+                # 종합 점수 계산 (Content Engine이 안 주면 평균으로 계산)
+                l_score = c_metrics.get("logic_score", 0)
+                j_score = c_metrics.get("job_fit_score", 0)
+                t_score = c_metrics.get("time_management_score", 0)
+                # 만약 metrics에 'score'가 없다면 임의 계산
+                final_content_score = int((l_score + j_score + t_score) / 3)
+                
                 content_payload = ContentDBPayload(
                     answer_id=answer_id,
-                    logic_score=c_metrics.get("logic_score", 0),
-                    job_fit_score=c_metrics.get("job_fit_score", 0),
-                    time_management_score=c_metrics.get("time_management_score", 0),
+                    score=final_content_score, # 여기에 점수 필요
+                    logic_score=l_score,
+                    job_fit_score=j_score,
+                    time_management_score=t_score,
                     filler_count=filler_count,
                     keywords_json=c_metrics.get("keywords", []),
                     feedback=c_metrics.get("feedback", ""),
@@ -174,15 +242,40 @@ class AnalysisService:
                     summarized_text=None
                 )
                 
-                # 🟡 [수정] Service에서 JSON 문자열로 변환
                 content_data = content_payload.model_dump()
                 content_data['keywords_json'] = json.dumps(content_data['keywords_json'])
                 
                 content_repo.upsert_content_result(conn, content_data)
+                
+                # [중요] FinalReportService용 점수 주입
+                content_output["metrics"]["score"] = final_content_score
                 print(f"✅ 내용 분석 저장 완료")
 
 
-            # 4. 최종 완료 처리
+            # =================================================
+            # 4. Final Report 생성 (종합 분석)
+            # =================================================
+            print(f"📊 종합 리포트 생성 시작...")
+            
+            # (1) Session ID 조회
+            session_id = self._get_session_id(conn, answer_id)
+            
+            if session_id:
+                # (2) 리포트 생성 및 저장 (Upsert)
+                # 이 함수 내부에서 LLM 호출 -> JSON 파싱 -> DB 저장이 일어납니다.
+                report_result = final_report_service.create_or_upsert(
+                    conn=conn,
+                    session_id=session_id,
+                    visual_out=visual_output,
+                    voice_out=voice_output,
+                    content_out=content_output
+                )
+                print(f"✅ 종합 리포트 저장 완료 (Total Score: {report_result.total_score})")
+            else:
+                print(f"⚠️ Session ID를 찾을 수 없어 종합 리포트를 생성하지 못했습니다.")
+
+
+            # 5. 최종 완료 처리
             answer_repo.update_analysis_status(conn, answer_id, "DONE")
             print(f"🎉 [Analysis Done] Answer ID: {answer_id}")
 
