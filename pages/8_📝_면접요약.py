@@ -4,16 +4,17 @@ import time
 import os
 import sys
 
-# [수정] 파이썬이 app 패키지를 찾을 수 있도록 루트 경로 추가
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# [수정] 현재 파일 위치 기준 상위 폴더(project_root)를 경로에 추가
+current_dir = os.path.dirname(os.path.abspath(__file__))
+root_dir = os.path.dirname(current_dir)
+if root_dir not in sys.path:
+    sys.path.append(root_dir)
 
-# [수정] models 팩키지의 __init__.py 에러를 피하기 위해 직접 경로에서 가져오기
-from app.models.enums import SessionStatus
 
 # 1. 필수 세션 데이터 체크
-if not st.session_state.get('interview_session_id'):
-    st.warning("진행 중인 면접 세션 정보가 없습니다.")
-    st.switch_page("pages/1_🏠_랜딩.py")
+if not st.session_state.get('token') or not st.session_state.get('interview_session_id'):
+    st.warning("로그인 정보나 면접 세션 정보가 없습니다.")
+    st.switch_page("pages/3_🔐_로그인.py")
     st.stop()
 
 st.title("📝 면접 응시 요약")
@@ -70,4 +71,7 @@ for i, step in enumerate(analysis_steps):
 st.balloons()
 st.success("🎉 모든 분석이 완료되었습니다! 리포트로 이동합니다.")
 time.sleep(2) # 성공 메시지를 보여줄 여유 시간
-st.switch_page("pages/6_📊_리포트.py")
+try:
+    st.switch_page("pages/6_📊_리포트.py")
+except Exception:
+    st.error("리포트 페이지를 찾을 수 없습니다. 경로를 확인해주세요.")
