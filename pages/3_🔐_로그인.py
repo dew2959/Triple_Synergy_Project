@@ -26,13 +26,23 @@ with st.form("login_form"):
         else:
             try:
                 result = auth_api.login(email, password)
-                st.session_state.token = result.get('access_token')
-                st.session_state.user = result.get('user_info')
+
+                token = result.get("access_token") or result.get("metrics", {}).get("access_token")
+                if not token:
+                    st.error(f"access_token이 없어요: {result}")
+                    st.stop()
+
+                st.session_state.token = token
+                st.session_state.user = None  # ✅ me가 없으니 비워둠
+
                 st.success("로그인 성공!")
                 st.info("프로필 설정 페이지로 이동합니다...")
                 st.switch_page("pages/4_👤_온보딩.py")
+
+
             except Exception as e:
                 st.error(f"로그인 실패: {str(e)}")
+
 
 st.markdown("---")
 st.markdown("계정이 없으신가요? [회원가입 페이지로 이동](pages/2_📝_회원가입.py)")

@@ -35,28 +35,53 @@ class AuthAPI:
     
     @staticmethod
     def login(email: str, password: str):
-        """로그인"""
         url = f"{API_BASE_URL}/auth/login"
-        data = {"email": email, "password": password}
-        
-        response = requests.post(url, json=data)
+
+        form = {
+            "grant_type": "password",   # ✅ pattern ^password$ 맞추기
+            "username": email.strip(),  # ✅ 백엔드는 username 필드로 받음 (여기에 email을 넣는 구조)
+            "password": password,
+            "scope": "",                # optional
+            # client_id / client_secret 은 보통 비워둠
+        }
+
+        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        response = requests.post(url, data=form, headers=headers)
+
+        # 응답 파싱
+        try:
+            body = response.json()
+        except Exception:
+            body = {"raw": response.text}
+
         if response.status_code == 200:
-            return response.json()
-        else:
-            error_detail = response.json().get('detail', '로그인에 실패했습니다.')
-            raise Exception(error_detail)
+            return body
+
+        # 에러 메시지 최대한 살리기
+        detail = body.get("detail") if isinstance(body, dict) else None
+        raise Exception(f"{response.status_code} {detail or body}")
+
     
     @staticmethod
     def get_me():
-        """현재 사용자 정보 조회"""
+        """현재 사용자 정보 조회 (디버그 포함)"""
         url = f"{API_BASE_URL}/auth/me"
         headers = get_headers()
-        
+
         response = requests.get(url, headers=headers)
+
+        # ✅ 에러 바디를 안전하게 파싱
+        try:
+            body = response.json()
+        except Exception:
+            body = {"raw": response.text}
+
         if response.status_code == 200:
-            return response.json()
-        else:
-            raise Exception("사용자 정보를 불러올 수 없습니다.")
+            return body
+
+        # ✅ 지금 뭐가 문제인지 한 줄로 보여주기
+        raise Exception(f"/auth/me failed: {response.status_code} {body}")
+
 
 class ReportAPI:
     """리포트 관련 API"""
