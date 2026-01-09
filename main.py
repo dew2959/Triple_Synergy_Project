@@ -1,7 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.v1 import interview # 라우터 import
-from app.api.v1 import interview, auth
+from app.api.v1 import interview, auth ,resume
 
 app = FastAPI()
 
@@ -22,8 +21,7 @@ app.add_middleware(
 
 app.include_router(interview.router, prefix="/api/v1/interview", tags=["Interview"])
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
-#app.include_router(resume.router, prefix="/api/v1/resume", tags=["resume"])
-
+app.include_router(resume.router, prefix="/api/v1/resume", tags=["Resume"])
 
 @app.get("/")
 def read_root():
