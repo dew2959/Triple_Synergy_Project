@@ -26,6 +26,8 @@ def login(
     conn: connection = Depends(get_db_conn),
     form_data: OAuth2PasswordRequestForm = Depends() 
 ):
+    print(f"로그인 시도 아이디: {form_data.username}")
+
     try:
         # 1. 여기서 이메일 형식이 맞는지 검사 (Pydantic)
         user_in = UserLogin(

@@ -3,6 +3,18 @@
 """
 import streamlit as st
 from utils.api_client import auth_api
+import os
+import sys
+
+# 프로젝트 루트 경로를 추가하여 utils를 찾을 수 있게 합니다.
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+try:
+    from utils.api_client import auth_api
+except ImportError:
+    st.error("api_client.py를 찾을 수 없습니다. utils 폴더에 파일이 있는지 확인해주세요.")
+    st.stop()
+
 
 st.title("🔐 로그인")
 st.markdown("AI 모의면접 서비스에 오신 것을 환영합니다")
@@ -32,7 +44,7 @@ with st.form("login_form"):
                 st.info("프로필 설정 페이지로 이동합니다...")
                 st.switch_page("pages/4_👤_온보딩.py")
             except Exception as e:
-                st.error(f"로그인 실패: {str(e)}")
+                st.error(f"로그인 실패: {repr(e)}")
 
 st.markdown("---")
 st.markdown("계정이 없으신가요? [회원가입 페이지로 이동](pages/2_📝_회원가입.py)")

@@ -45,15 +45,26 @@ class UserRepository:
         회원가입
         """
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute(
-                """
+            sql = """
                 INSERT INTO users (email, password_hash, name)
-                VALUES (%s, %s, %s)
+                VALUES (%(email)s, %(password_hash)s, %(name)s)
                 RETURNING user_id, email, name, created_at
-                """,
-                (email, password_hash, name)
-            )
-            return cur.fetchone()
-
+            """
+            params = {
+                "email": email,
+                "password_hash": password_hash,
+                "name": name
+            }
+            
+            cur.execute(sql, params)
+            
+            # 생성된 user_id를 포함한 레코드를 가져옵니다.
+            new_user = cur.fetchone()
+            
+            # [중요] SQLAlchemy Core 트랜잭션을 사용하므로, 
+            # 외부에서 commit이 관리되지 않는다면 여기서 명시적으로 해줘야 할 수 있습니다.
+            # conn.commit() 
+            
+            return new_user
 
 user_repo = UserRepository()
