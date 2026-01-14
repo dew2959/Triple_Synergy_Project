@@ -39,4 +39,16 @@ class SessionRepository:
                 "UPDATE interview_sessions SET status = %s WHERE session_id = %s",
                 (status, session_id)
             )
+
+    def get_all_by_user_id(self, conn, user_id: int):
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT * FROM interview_sessions 
+                WHERE user_id = %s 
+                ORDER BY created_at DESC
+                """,
+                (user_id,)
+            )
+            return cur.fetchall()
 session_repo = SessionRepository()
