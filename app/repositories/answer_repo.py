@@ -25,9 +25,18 @@ class AnswerRepository:
             return cur.fetchone()
 
     def get_by_id(self, conn, answer_id: int):
+        """
+        [수정됨] answers 테이블과 questions 테이블을 조인하여
+        질문 내용(question_content)까지 함께 조회합니다.
+        """
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(
-                "SELECT * FROM answers WHERE answer_id = %s",
+                """
+                SELECT a.*, q.content as question_content
+                FROM answers a
+                JOIN questions q ON a.question_id = q.question_id
+                WHERE a.answer_id = %s
+                """,
                 (answer_id,)
             )
             return cur.fetchone()
