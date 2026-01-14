@@ -4,9 +4,20 @@ from psycopg2.extensions import connection
 from app.api.deps import get_db_conn, get_current_user
 from app.repositories.resume_repo import resume_repo
 from app.schemas.resume import ResumeCreate, ResumeResponse # 스키마 import 확인
-
+from typing import List
 router = APIRouter()
-
+@router.get("/", response_model=List[ResumeResponse])
+def get_my_resumes(
+    current_user: dict = Depends(get_current_user),
+    conn: connection = Depends(get_db_conn)
+):
+    """
+    [내 이력서 목록 조회]
+    로그인한 사용자의 모든 이력서를 최신순으로 반환합니다.
+    (프론트엔드에서 면접 시작 전 이력서 선택 화면에 사용)
+    """
+    resumes = resume_repo.get_all_by_user_id(conn, current_user['user_id'])
+    return resumes
 # [변경] POST /upload -> / (또는 /create)
 # 파일 업로드가 아니므로 경로를 명확히 하는 것이 좋습니다.
 @router.post("/", response_model=ResumeResponse)

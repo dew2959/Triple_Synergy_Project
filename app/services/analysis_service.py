@@ -69,19 +69,19 @@ class AnalysisService:
             """, (answer_id,))
             row = cur.fetchone()
             if row:
-                return row['session_id']
+                return row[0] # RealDictCursor가 아니면 인덱스, 맞다면 row['session_id'] 확인 필요
             return None
 
     def run_full_analysis(self, conn: connection, answer_id: int, file_path: str):
         print(f"🎬 [Analysis Start] Answer ID: {answer_id}")
         
-        # 1. 답변 조회
+        # 1. 답변 조회 (존재 여부 확인)
         answer = answer_repo.get_by_id(conn, answer_id)
         if not answer:
             print("❌ 답변을 찾을 수 없습니다.")
             return
 
-        # 2. 상태 변경
+        # 2. 상태 변경 (PENDING -> PROCESSING)
         print(f"🔄 상태 변경: PENDING -> PROCESSING")
         answer_repo.update_analysis_status(conn, answer_id, "PROCESSING")
 
@@ -91,15 +91,34 @@ class AnalysisService:
         content_output = {}
 
         try:
-            # 0. 오디오 추출
-            print("🔊 오디오 추출 중...")
-            audio_path = MediaUtils.extract_audio(file_path)
+            # =================================================
+            # 0. 미디어 전처리 (압축 + 오디오 추출)
+            # =================================================
+            print(f"🔨 미디어 처리 중... (파일: {file_path})")
+            
+            # (1) 영상 압축/리사이징 (덮어쓰기: overwrite=True)
+            # 용량을 줄이고 해상도를 통일(720p)하여 분석 속도 향상
+            optimized_video_path = MediaUtils.compress_video(file_path, overwrite=True)
+            print(f"   -> 영상 압축 완료: {optimized_video_path}")
+
+            # (2) 오디오 추출 (wav 저장)
+            audio_path = MediaUtils.extract_audio(optimized_video_path, overwrite=True)
+            print(f"   -> 오디오 추출 완료: {audio_path}")
+
+            # (3) DB에 오디오 경로 업데이트
+            # answer_repo에 update_audio_path 같은게 없으면 직접 쿼리 실행
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE answers SET audio_path = %s WHERE answer_id = %s",
+                    (audio_path, answer_id)
+                )
+                conn.commit()
 
             # =================================================
-            # 1. 비주얼 분석
+            # 1. 비주얼 분석 (압축된 영상 사용)
             # =================================================
             print(f"👁️ 비주얼 분석 시작...")
-            visual_output = run_visual(file_path)
+            visual_output = run_visual(optimized_video_path)
             
             if visual_output.get("error"):
                 print(f"❌ 비주얼 분석 에러: {visual_output['error']}")
@@ -137,7 +156,7 @@ class AnalysisService:
 
 
             # =================================================
-            # 2. STT 및 음성 분석
+            # 2. STT 및 음성 분석 (추출된 오디오 사용)
             # =================================================
             print(f"🗣️ STT 변환 시작...")
             stt_output = run_stt(audio_path)
@@ -146,6 +165,13 @@ class AnalysisService:
             if not stt_output.get("error"):
                 stt_text = stt_output["metrics"].get("text", "")
                 stt_segments = stt_output["metrics"].get("segments", [])
+
+            # 추출된 텍스트 DB 저장 (선택 사항 - answers 테이블에 stt_text 컬럼이 있다면)
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE answers SET stt_text = %s WHERE answer_id = %s",
+                    (stt_text, answer_id)
+                )
 
             print(f"🎙️ 음성 분석 시작...")
             voice_output = run_voice(audio_path, stt_text=stt_text, stt_segments=stt_segments)
@@ -222,16 +248,16 @@ class AnalysisService:
             else:
                 c_metrics = content_output.get("metrics", {})
                 
-                # 종합 점수 계산 (Content Engine이 안 주면 평균으로 계산)
+                # 종합 점수 계산
                 l_score = c_metrics.get("logic_score", 0)
                 j_score = c_metrics.get("job_fit_score", 0)
                 t_score = c_metrics.get("time_management_score", 0)
-                # 만약 metrics에 'score'가 없다면 임의 계산
+                
                 final_content_score = int((l_score + j_score + t_score) / 3)
                 
                 content_payload = ContentDBPayload(
                     answer_id=answer_id,
-                    score=final_content_score, # 여기에 점수 필요
+                    score=final_content_score,
                     logic_score=l_score,
                     job_fit_score=j_score,
                     time_management_score=t_score,
@@ -262,7 +288,6 @@ class AnalysisService:
             
             if session_id:
                 # (2) 리포트 생성 및 저장 (Upsert)
-                # 이 함수 내부에서 LLM 호출 -> JSON 파싱 -> DB 저장이 일어납니다.
                 report_result = final_report_service.create_or_upsert(
                     conn=conn,
                     session_id=session_id,

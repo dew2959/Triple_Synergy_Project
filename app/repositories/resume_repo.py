@@ -2,6 +2,40 @@ import json
 from psycopg2.extras import RealDictCursor
 
 class ResumeRepository:
+    def get_all_by_user_id(self, conn, user_id: int):
+        """특정 유저의 모든 이력서 조회 (최신순)"""
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT * FROM resumes 
+                WHERE user_id = %s 
+                ORDER BY created_at DESC
+                """,
+                (user_id,)
+            )
+            return cur.fetchall()
+
+    def get_latest_by_user_id(self, conn, user_id: int):
+        """특정 유저의 가장 최근 이력서 1개 조회"""
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT * FROM resumes 
+                WHERE user_id = %s 
+                ORDER BY created_at DESC 
+                LIMIT 1
+                """,
+                (user_id,)
+            )
+            return cur.fetchone()
+    def get_by_id(self, conn, resume_id: int):
+        """이력서 ID로 단건 조회"""
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                "SELECT * FROM resumes WHERE resume_id = %s",
+                (resume_id,)
+            )
+            return cur.fetchone()
     def create(self, conn, user_id: int, resume_data: dict):
         """
         [이력서 저장]
