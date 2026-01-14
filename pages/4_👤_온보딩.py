@@ -75,7 +75,7 @@ if st.session_state.mode == "list":
                         st.markdown(f"**[{res.get('job_title')}]** {res.get('target_company', '일반 이력서')}")
                         st.caption(f"최종 수정일: {res.get('updated_at', '정보 없음')}")
                     with col3:
-                        if st.button("상세보기", key=f"btn_view_{res.get('id')}"):
+                        if st.button("상세보기", key=f"btn_view_{res['resume_id']}"):
                             handle_view_detail(res)
     except Exception as e:
         st.error(f"이력서를 불러오는 중 오류가 발생했습니다: {e}")
@@ -88,23 +88,70 @@ if st.session_state.mode == "list":
 
 # [MODE: VIEW] 이력서 상세보기
 elif st.session_state.mode == "view":
-    res = st.session_state.selected_resume
+    res = st.session_state.get('selected_resume', {})
     st.title(f"📄 {res.get('job_title')} - 상세 보기")
     
     if st.button("← 목록으로 돌아가기"):
         handle_back_to_list()
+
+    st.markdown("---")  # 구분선
         
-    with st.expander("기본 정보", expanded=True):
-        st.write(f"**지원 직무:** {res.get('job_title')}")
-        st.write(f"**지원 회사:** {res.get('target_company')}")
-    
+    # 기본 정보
+    st.subheader("기본 정보")
+    st.write(f"**지원 직무:** {res.get('job_title', '정보 없음')}")
+    st.write(f"**지원 회사:** {res.get('target_company', '정보 없음')}")
+
+    st.markdown("---")
+
+    # 학력
+    st.subheader("학력")
     if res.get('education'):
-        with st.expander("학력"):
-            for edu in res['education']:
-                st.write(f"**{edu['school']}** ({edu['status']}) | {edu['major']}")
-                
-    # ... 기타 항목(경력, 프로젝트 등) 표시 로직 ...
-    st.json(res) # 전체 데이터를 JSON 형태로 우선 확인
+        for edu in res['education']:
+            st.write(f"- **{edu.get('school', '학교명 없음')}** ({edu.get('status', '-')}) | {edu.get('major', '-')}")
+    else:
+        st.write("정보 없음")
+
+    st.markdown("---")
+
+    # 경력
+    st.subheader("경력")
+    if res.get('experience'):
+        for exp in res['experience']:
+            st.write(f"- **{exp.get('company', '회사명 없음')}** - {exp.get('position', '-')}")
+    else:
+        st.write("정보 없음")
+
+    st.markdown("---")
+
+    # 프로젝트
+    st.subheader("프로젝트")
+    if res.get('projects'):
+        for proj in res['projects']:
+            st.write(f"- **{proj.get('name', '프로젝트명 없음')}** - {proj.get('role', '-')}")
+            if proj.get('description'):
+                st.write(f"  > {proj['description']}")
+    else:
+        st.write("정보 없음")
+
+    st.markdown("---")
+
+    # 수상 내역
+    st.subheader("수상 내역")
+    if res.get('awards'):
+        for award in res['awards']:
+            st.write(f"- **{award.get('title', '수상명 없음')}** - {award.get('organization', '-')}")
+    else:
+        st.write("정보 없음")
+
+    st.markdown("---")
+
+    # 자격증
+    st.subheader("자격증")
+    if res.get('certifications'):
+        for cert in res['certifications']:
+            st.write(f"- **{cert.get('name', '자격증명 없음')}** - {cert.get('organization', '-')}")
+    else:
+        st.write("정보 없음")
 
 # [MODE: WRITE] 이력서 작성하기 (기존 코드 통합)
 elif st.session_state.mode == "write":
