@@ -56,5 +56,23 @@ class ResumeRepository:
                 }
             )
             return cur.fetchone()
+        
+    def get_all_by_user_id(self, conn, user_id: int):
+        """
+        [내 이력서 목록 조회]
+        user_id 기준으로 모든 이력서 조회
+        """
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT *
+                FROM resumes
+                WHERE user_id = %s
+                ORDER BY created_at DESC
+                """,
+                (user_id,)
+            )
+            return cur.fetchall()
+
 
 resume_repo = ResumeRepository()
