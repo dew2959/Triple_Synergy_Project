@@ -1,13 +1,14 @@
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
 from pydantic import BaseModel
+from datetime import datetime
 
-# ==========================================
-# 1. 비주얼 분석 응답 (VisualResultResponse)
-# ==========================================
+# 기존 스키마들 import (같은 파일 내에 있다면 생략 가능)
+from app.schemas.report import FinalReportResult 
+
+# -----------------------------------------------------
+# [기존 코드 유지] 개별 분석 결과 스키마들
+# -----------------------------------------------------
 class VisualResultResponse(BaseModel):
-    """
-    answer_visual_analysis 테이블 구조와 1:1 매핑
-    """
     id: int
     answer_id: int
     score: Optional[int] = 0
@@ -16,13 +17,7 @@ class VisualResultResponse(BaseModel):
     good_points_json: Optional[List[str]] = []
     bad_points_json: Optional[List[str]] = []
 
-# ==========================================
-# 2. 음성 분석 응답 (VoiceResultResponse)
-# ==========================================
 class VoiceResultResponse(BaseModel):
-    """
-    answer_voice_analysis 테이블 구조와 1:1 매핑
-    """
     id: int
     answer_id: int
     score: Optional[int] = 0
@@ -34,25 +29,40 @@ class VoiceResultResponse(BaseModel):
     good_points_json: Optional[List[str]] = []
     bad_points_json: Optional[List[str]] = []
 
-# ==========================================
-# 3. 내용 분석 응답 (ContentResultResponse)
-# ==========================================
 class ContentResultResponse(BaseModel):
-    """
-    answer_content_analysis 테이블 구조와 1:1 매핑
-    
-    [주의] SQL 스키마에 'score'와 'filler_count' 컬럼이 없으므로 제거했습니다.
-    필요하다면 프론트엔드에서 logic/job_fit/time 점수의 평균을 계산해 사용하거나,
-    SQL에 해당 컬럼을 추가해야 합니다.
-    """
     id: int
     answer_id: int
-    
-    # DB에 있는 3가지 세부 점수
     logic_score: Optional[int] = 0
     job_fit_score: Optional[int] = 0
     time_management_score: Optional[int] = 0
-    
     feedback: Optional[str] = None
     model_answer: Optional[str] = None
     keywords_json: Optional[List[str]] = []
+
+
+# -----------------------------------------------------
+# [NEW] 통합 응답용 스키마
+# -----------------------------------------------------
+
+# 1. 질문 + 답변 + 3가지 분석 결과를 하나로 묶음
+class AnswerFullResult(BaseModel):
+    question_id: int
+    question_content: str
+    answer_id: int
+    video_path: Optional[str]
+    created_at: datetime
+    
+    # 분석 결과 (아직 분석 안 됐으면 None일 수 있음)
+    visual: Optional[VisualResultResponse] = None
+    voice: Optional[VoiceResultResponse] = None
+    content: Optional[ContentResultResponse] = None
+
+# 2. 최종 리포트 + 위 답변 리스트를 묶음
+
+
+class SessionFullResultResponse(BaseModel):
+    session_id: int
+    # 최종 리포트 (아직 생성 안 됐으면 None)
+    final_report: Optional[FinalReportResult] = None
+    # 질문별 상세 분석 결과 리스트
+    answers: List[AnswerFullResult] = []

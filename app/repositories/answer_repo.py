@@ -64,14 +64,16 @@ class AnswerRepository:
             )
 
     def get_all_by_session_id(self, conn, session_id: int):
-        """특정 세션에 속한 모든 답변 조회"""
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(
                 """
-                SELECT a.answer_id, a.video_path 
+                SELECT 
+                    a.answer_id, a.video_path, a.created_at,
+                    q.question_id, q.content as question_content
                 FROM answers a
                 JOIN questions q ON a.question_id = q.question_id
                 WHERE q.session_id = %s
+                ORDER BY q.order_index ASC
                 """,
                 (session_id,)
             )
