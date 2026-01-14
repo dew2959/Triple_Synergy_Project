@@ -49,5 +49,31 @@ class ResumeAPI(APIClient):
         raise Exception(res.text)
 
 
+class SessionAPI(APIClient):
+    def get_my_sessions(self, token):
+        """내 면접 세션 목록 조회"""
+        res = requests.get(
+            f"{self.base_url}/api/v1/session/",
+            headers={"Authorization": f"Bearer {token}"}
+        )
+        if res.status_code == 200:
+            return res.json()
+        return []
+
+class ReportAPI(APIClient):
+    def get_full_report(self, session_id, token):
+        """통합 리포트(Final Report + Answers) 조회"""
+        res = requests.get(
+            f"{self.base_url}/api/v1/result/session/{session_id}/full",
+            headers={"Authorization": f"Bearer {token}"}
+        )
+        if res.status_code == 200:
+            return res.json()
+        elif res.status_code == 404:
+            return None # 리포트 없음
+        raise Exception(f"리포트 조회 실패: {res.text}")
+
 auth_api = APIClient()
 resume_api = ResumeAPI()
+session_api = SessionAPI()
+report_api = ReportAPI()

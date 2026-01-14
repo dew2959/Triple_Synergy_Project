@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from psycopg2.extensions import connection
+from typing import List
 
 from app.api.deps import get_db_conn, get_current_user
 from app.repositories.session_repo import session_repo
@@ -8,7 +9,16 @@ from app.schemas.session import SessionCreate, SessionResponse
 
 router = APIRouter()
 
-# app/api/v1/session.py
+@router.get("/", response_model=List[SessionResponse])
+def get_my_sessions(
+    conn: connection = Depends(get_db_conn),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    [내 면접 세션 목록 조회]
+    로그인한 사용자의 모든 면접 세션 기록을 최신순으로 반환합니다.
+    """
+    return session_repo.get_all_by_user_id(conn, current_user['user_id'])
 
 @router.post("/", response_model=SessionResponse)
 def create_interview_session(
