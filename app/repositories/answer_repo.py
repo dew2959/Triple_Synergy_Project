@@ -54,5 +54,18 @@ class AnswerRepository:
                 (stt_text, answer_id)
             )
 
+    def get_all_by_session_id(self, conn, session_id: int):
+        """특정 세션에 속한 모든 답변 조회"""
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT a.answer_id, a.video_path 
+                FROM answers a
+                JOIN questions q ON a.question_id = q.question_id
+                WHERE q.session_id = %s
+                """,
+                (session_id,)
+            )
+            return cur.fetchall()
 
 answer_repo = AnswerRepository()

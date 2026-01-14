@@ -1,6 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.v1 import interview, auth ,resume, result
+from app.api.v1 import interview, auth ,resume, result, question, session, analysis, answer 
+
+
 
 app = FastAPI()
 
@@ -23,6 +25,12 @@ app.include_router(interview.router, prefix="/api/v1/interview", tags=["Intervie
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(resume.router, prefix="/api/v1/resume", tags=["Resume"])
 app.include_router(result.router, prefix="/api/v1/result", tags=["result"])
+app.include_router(question.router, prefix="/api/v1/question", tags=["question"])
+app.include_router(session.router, prefix="/api/v1/session", tags=["session"])
+app.include_router(analysis.router, prefix="/api/v1/analysis", tags=["analysis"])
+app.include_router(answer.router, prefix="/api/v1/answer", tags=["answer"])
+
+
 @app.get("/")
 def read_root():
     return {"message": "Triple Synergy API is running!"}

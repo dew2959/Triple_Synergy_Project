@@ -1,34 +1,38 @@
-from pydantic import BaseModel
-from typing import List, Optional
+from pydantic import BaseModel, Field
 from datetime import datetime
-from app.models.enums import SessionStatus, QuestionCategory
+from typing import Optional
+from enum import Enum
 
-# [질문 응답] 프론트엔드에 "이거 물어보세요" 하고 줄 때
-class QuestionResponse(BaseModel):
-    question_id: int
-    content: str
-    order_index: int
-    category: QuestionCategory
+# DB의 ENUM과 일치시키는 파이썬 Enum
+class SessionStatus(str, Enum):
+    READY = "READY"
+    IN_PROGRESS = "IN_PROGRESS"
+    ANALYZING = "ANALYZING"
+    COMPLETED = "COMPLETED"
 
-    class Config:
-        from_attributes = True
-
-# [세션 시작 요청] (Input)
 class SessionCreate(BaseModel):
-    user_id: int # 나중엔 토큰에서 자동 추출
-    resume_id: Optional[int] = None # 이력서 기반 면접일 경우
-    job_role: str = "Backend Developer"
-    company_name: str = "Tech Corp"
+    """
+    [세션 생성 요청]
+    사용자는 '어떤 이력서'로 면접을 볼 것인지만 선택하면 됩니다.
+    나머지 정보(직무, 회사 등)는 백엔드에서 이력서를 보고 자동으로 채웁니다.
+    """
+    resume_id: Optional[int] = Field(None, description="이력서 ID (생략 시 최신 이력서 사용)")
 
-# [세션 정보 응답] (Output)
 class SessionResponse(BaseModel):
+    """
+    [세션 응답]
+    생성된 세션의 상태와 메타데이터를 반환합니다.
+    """
     session_id: int
-    status: SessionStatus
-    job_role: str
-    created_at: datetime
+    user_id: int
+    resume_id: Optional[int]
     
-    # 현재 세션의 질문 목록 포함 (선택)
-    questions: List[QuestionResponse] = []
+    # 이력서에서 복사해온 정보들
+    job_role: Optional[str] = Field(None, description="지원 직무")
+    company_name: Optional[str] = Field(None, description="목표 회사")
+    
+    status: SessionStatus
+    created_at: datetime
 
     class Config:
         from_attributes = True
