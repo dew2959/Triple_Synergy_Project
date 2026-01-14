@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import time
 
+
 # 1. 로그인 및 세션 체크
 if not st.session_state.get('user'):
     st.warning("로그인이 필요한 서비스입니다.")

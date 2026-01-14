@@ -38,9 +38,11 @@ with st.form("login_form"):
         else:
             try:
                 result = auth_api.login(email, password)
-                st.session_state.token = result.get('access_token')
+                st.session_state.token = result["access_token"]
                 # user_info가 없을 경우를 대비해 기본값이나 이메일을 넣어둡니다.
-                st.session_state.user = result.get('user_info') or {"email": email}
+                st.session_state.user = {
+            "email": email
+        }
                 st.success("로그인 성공!")
                 st.info("프로필 설정 페이지로 이동합니다...")
                 st.switch_page("pages/4_👤_온보딩.py")
