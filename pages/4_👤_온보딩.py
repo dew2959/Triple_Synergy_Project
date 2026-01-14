@@ -17,8 +17,8 @@ if "mode" not in st.session_state:
     st.session_state.mode = "list"  # list | write | view
 if "selected_resume" not in st.session_state:
     st.session_state.selected_resume = None
-if "resume_form_data" not in st.session_state:
-    st.session_state.resume_form_data = {}
+if "resume_data" not in st.session_state:
+    st.session_state.resume_data = {}
 
 # 초기 입력 폼 데이터 스켈레톤
 def get_empty_resume():
@@ -39,7 +39,7 @@ def get_empty_resume():
 
 # --- 로직 함수들 ---
 def handle_write_new():
-    st.session_state.resume_form_data = get_empty_resume()
+    st.session_state.resume_data = get_empty_resume()
     st.session_state.mode = "write"
     st.rerun()
 
@@ -119,40 +119,126 @@ elif st.session_state.mode == "write":
 
     # Tab 1: 기본 정보
     with tab1:
-        st.session_state.resume_form_data['job_title'] = st.text_input(
-            "지원 직무*", value=st.session_state.resume_form_data.get('job_title', '')
+        st.session_state.resume_data['job_title'] = st.text_input(
+            "지원 직무*", value=st.session_state.resume_data.get('job_title', '')
         )
-        st.session_state.resume_form_data['target_company'] = st.text_input(
-            "지원 회사", value=st.session_state.resume_form_data.get('target_company', '')
+        st.session_state.resume_data['target_company'] = st.text_input(
+            "지원 회사", value=st.session_state.resume_data.get('target_company', '')
         )
 
     # Tab 2: 학력 (동적 리스트 로직)
     with tab2:
         if st.button("➕ 학력 추가"):
-            st.session_state.resume_form_data['education'].append({'school': '', 'major': '', 'degree': '학사', 'start_date': '', 'end_date': '', 'status': '졸업'})
+            st.session_state.resume_data['education'].append({'school': '', 'major': '', 'degree': '학사', 'start_date': '', 'end_date': '', 'status': '졸업'})
             st.rerun()
         
-        for i, edu in enumerate(st.session_state.resume_form_data['education']):
+        for i, edu in enumerate(st.session_state.resume_data['education']):
             with st.expander(f"학력 {i+1}", expanded=True):
-                edu['school'] = st.text_input("학교명", value=edu['school'], key=f"edu_sch_{i}")
-                edu['major'] = st.text_input("전공", value=edu['major'], key=f"edu_maj_{i}")
+
+                edu['school'] = st.text_input("학교명*", value=edu['school'], key=f"edu_school_{i}")
+                edu['major'] = st.text_input("전공*", value=edu['major'], key=f"edu_major_{i}")
+                edu['degree'] = st.selectbox("학위*", ["학사", "석사", "박사", "전문학사"],
+                                           index=["학사", "석사", "박사", "전문학사"].index(edu['degree']) if edu['degree'] in ["학사", "석사", "박사", "전문학사"] else 0,
+                                           key=f"edu_degree_{i}")
+                edu['start_date'] = st.text_input("입학일*", value=edu['start_date'], placeholder="YYYY-MM", key=f"edu_start_{i}")
+                edu['end_date'] = st.text_input("졸업일", value=edu['end_date'], placeholder="YYYY-MM", key=f"edu_end_{i}")
+                edu['status'] = st.selectbox("상태*", ["졸업", "재학", "휴학", "수료"],
+                                           index=["졸업", "재학", "휴학", "수료"].index(edu['status']) if edu['status'] in ["졸업", "재학", "휴학", "수료"] else 0,
+                                           key=f"edu_status_{i}")
+
                 if st.button(f"삭제", key=f"del_edu_{i}"):
-                    st.session_state.resume_form_data['education'].pop(i)
+                    st.session_state.resume_data['education'].pop(i)
                     st.rerun()
 
-    # ... Tab 3~6 (경력, 프로젝트 등 동일 패턴으로 구현) ...
+
+    # Tab 3: 경력 
+    with tab3:
+        if st.button("➕ 경력 추가"):
+            st.session_state.resume_data['experience'].append({
+                'company': '', 'position': '', 'department': '', 'start_date': '', 'end_date': '', 'description': '', 'achievements': '' })
+
+        for i, exp in enumerate(st.session_state.resume_data['experience']):
+            with st.expander(f"경력 {i+1}", expanded=True):
+                exp['company'] = st.text_input("회사명*", value=exp['company'], key=f"exp_company_{i}")
+                exp['position'] = st.text_input("직책*", value=exp['position'], key=f"exp_position_{i}")
+                exp['department'] = st.text_input("부서", value=exp['department'], key=f"exp_dept_{i}")
+                exp['start_date'] = st.text_input("입사일*", value=exp['start_date'], placeholder="YYYY-MM", key=f"exp_start_{i}")
+                exp['end_date'] = st.text_input("퇴사일", value=exp['end_date'], placeholder="YYYY-MM", key=f"exp_end_{i}")
+                exp['description'] = st.text_area("주요 업무*", value=exp['description'], key=f"exp_desc_{i}", height=100)
+                exp['achievements'] = st.text_area("주요 성과", value=exp['achievements'], key=f"exp_ach_{i}", height=100)
+
+                if st.button(f"🗑️ 삭제", key=f"del_exp_{i}"):
+                    st.session_state.resume_data['experience'].pop(i)
+                    st.rerun()
+
+
+    # Tab 4: 프로젝트 
+    with tab4:
+        if st.button("➕ 프로젝트 추가"):
+            st.session_state.resume_data['projects'].append({
+                'name': '', 'role': '', 'start_date': '', 'end_date': '', 'description': '', 'technologies': '' , 'achievements': ''})
+
+        for i, proj in enumerate(st.session_state.resume_data['projects']):
+            with st.expander(f"프로젝트 {i+1}", expanded=True):
+                proj['name'] = st.text_input("프로젝트명*", value=proj['name'], key=f"proj_name_{i}")
+                proj['role'] = st.text_input("역할*", value=proj['role'], key=f"proj_role_{i}")
+                proj['start_date'] = st.text_input("시작일*", value=proj['start_date'], placeholder="YYYY-MM", key=f"proj_start_{i}")
+                proj['end_date'] = st.text_input("종료일", value=proj['end_date'], placeholder="YYYY-MM", key=f"proj_end_{i}")
+                proj['description'] = st.text_area("프로젝트 설명*", value=proj['description'], key=f"proj_desc_{i}", height=100)
+                proj['technologies'] = st.text_input("사용 기술", value=proj['technologies'], key=f"proj_tech_{i}")
+                proj['achievements'] = st.text_area("주요 성과", value=proj['achievements'], key=f"proj_ach_{i}", height=100)
+
+                if st.button(f"🗑️ 삭제", key=f"del_proj_{i}"):
+                    st.session_state.resume_data['projects'].pop(i)
+                    st.rerun()
+
+    # Tab 5: 수상
+    with tab5:
+        if st.button("➕ 수상 내역 추가"):
+            st.session_state.resume_data['awards'].append({
+                'title': '', 'organization': '', 'date': '', 'description': '' })
+
+        for i, award in enumerate(st.session_state.resume_data['awards']):
+            with st.expander(f"수상 {i+1}", expanded=True):
+                award['title'] = st.text_input("수상명*", value=award['title'], key=f"award_title_{i}")
+                award['organization'] = st.text_input("수여기관", value=award['organization'], key=f"award_organization_{i}")
+                award['date'] = st.text_input("수상일", value=award['date'], placeholder="YYYY-MM", key=f"award_date_{i}")
+                award['description'] = st.text_area("설명", value=award['description'], key=f"award_desc_{i}", height=100)
+
+                if st.button(f"🗑️ 삭제", key=f"del_award_{i}"):
+                    st.session_state.resume_data['awards'].pop(i)
+                    st.rerun() 
+
+
+    # Tab 6: 자격증
+    with tab6:
+        if st.button("➕ 자격증 추가"):
+            st.session_state.resume_data['certifications'].append({
+                'name': '', 'organization': '', 'date': '', 'valid_until': '', 'description': '' })
+            
+        for i, cert in enumerate(st.session_state.resume_data['certifications']):
+            with st.expander(f"자격증 {i+1}", expanded=True):
+                cert['name'] = st.text_input("자격증명*", value=cert['name'], key=f"cert_name_{i}")
+                cert['organization'] = st.text_input("발급기관", value=cert['organization'], key=f"cert_org_{i}")
+                cert['date'] = st.text_input("취득일", value=cert['date'], placeholder="YYYY-MM", key=f"cert_date_{i}")
+                cert['valid_until'] = st.text_input("유효기간", value=cert['valid_until'], placeholder="YYYY-MM", key=f"cert_valid_{i}")
+                cert['description'] = st.text_area("설명", value=cert['description'], key=f"cert_desc_{i}", height=100)
+
+                if st.button(f"🗑️ 삭제", key=f"del_cert_{i}"):
+                    st.session_state.resume_data['certifications'].pop(i)
+                    st.rerun()
 
     st.divider()
     
     # 최종 저장 버튼
-    if st.button("💾 이력서 최종 저장", use_container_width=True, type="primary"):
-        if not st.session_state.resume_form_data.get('job_title'):
+    if st.button("💾 이력서 저장", use_container_width=True, type="primary"):
+        if not st.session_state.resume_data.get('job_title'):
             st.error("지원 직무는 필수입니다.")
         else:
             try:
                 # resume_api를 통한 POST 요청
                 # skills_text 처리 등 전처리 포함
-                payload = st.session_state.resume_form_data
+                payload = st.session_state.resume_data
                 response = resume_api.create_resume(st.session_state.token, payload)
                 
                 if response:
