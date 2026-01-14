@@ -35,7 +35,7 @@ def _build_compact(visual_out, voice_out, content_out) -> Dict[str, Any]:
     # LLM에 핵심만 넣기 (너무 많이 넣으면 흔들림)
     return {
         "question": {
-            "text": question_text,
+            "text": ' ',
         },
         "visual": {
             "metrics": visual_out.get("metrics", {}),
@@ -123,7 +123,7 @@ class FinalReportService:
     ) -> FinalReportResult:
 
         v, a, c, total = _compute_scores(visual_out, voice_out, content_out)
-        compact = _build_compact(visual_out, voice_out, content_out, question_text=question_text)
+        compact = _build_compact(visual_out, voice_out, content_out)
 
         # 1) LLM 호출 (실패하면 fallback)
         try:
