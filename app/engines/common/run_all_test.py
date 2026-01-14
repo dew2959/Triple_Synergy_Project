@@ -15,10 +15,12 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--video", type=str, default=None, help="mp4 path (for visual)")
     parser.add_argument("--audio", type=str, required=True, help="wav path (for stt/voice)")
+    parser.add_argument("--question", type=str, default="", help="question text (for content)")
     args = parser.parse_args()
 
     video_path = args.video
     audio_path = args.audio
+    question_text = args.question or ""
 
     # 1) VISUAL (optional)
     if video_path:
@@ -46,7 +48,7 @@ def main() -> None:
 
     # 4) CONTENT (stt_text 없으면 스킵)
     if stt_text:
-        content_out = run_content(stt_text)
+        content_out = run_content(stt_text, question_text=question_text)
         assert_v0_contract(content_out, expected_module="content")
 
         print("=== CONTENT ===")

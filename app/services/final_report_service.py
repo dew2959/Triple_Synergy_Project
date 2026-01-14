@@ -34,6 +34,9 @@ def _compute_scores(visual_out: Dict[str, Any], voice_out: Dict[str, Any], conte
 def _build_compact(visual_out, voice_out, content_out) -> Dict[str, Any]:
     # LLM에 핵심만 넣기 (너무 많이 넣으면 흔들림)
     return {
+        "question": {
+            "text": question_text,
+        },
         "visual": {
             "metrics": visual_out.get("metrics", {}),
             "events": (visual_out.get("events", [])[:10]),
@@ -57,6 +60,7 @@ def _build_prompt(compact: Dict[str, Any]) -> str:
 규칙:
 - 입력에 없는 사실/수치를 절대 만들지 마라.
 - 출력은 반드시 JSON만(설명/마크다운 금지).
+- 반드시 question.text(면접 질문)를 기준으로 요약/강점/액션플랜을 작성하라.
 - strengths/weaknesses는 각 2~4개.
 - action_plans_json은 3~7개, title/description만.
 
@@ -115,10 +119,11 @@ class FinalReportService:
         visual_out: Dict[str, Any],
         voice_out: Dict[str, Any],
         content_out: Dict[str, Any],
+        question_text : Optional[str] = None,
     ) -> FinalReportResult:
 
         v, a, c, total = _compute_scores(visual_out, voice_out, content_out)
-        compact = _build_compact(visual_out, voice_out, content_out)
+        compact = _build_compact(visual_out, voice_out, content_out, question_text=question_text)
 
         # 1) LLM 호출 (실패하면 fallback)
         try:
