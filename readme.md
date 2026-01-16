@@ -43,7 +43,7 @@ pip install moviepy==1.0.3 decorator==4.4.2 "numpy<2.4" openai-whisper mediapipe
 <br />
      
 ## 앞으로 라이브러리가 추가될 때는 규칙을 따라주세요 
-### 1. 설치한 사람 : 설치하고 나서 requirments.yml를 업데이트해서 깃허브에 올립니다. 
+### 1. 설치한 사람 : 설치하고 나서 environment.yml를 업데이트해서 깃허브에 올립니다. 
 ```bash
 conda env export > environment.yml
 ```
