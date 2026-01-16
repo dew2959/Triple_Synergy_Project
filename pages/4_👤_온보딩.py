@@ -166,11 +166,14 @@ elif st.session_state.mode == "write":
 
     # Tab 1: 기본 정보
     with tab1:
+        st.session_state.resume_data['name'] = st.text_input(
+            "이름*", value=st.session_state.resume_data.get('name', '')
+        )
         st.session_state.resume_data['job_title'] = st.text_input(
             "지원 직무*", value=st.session_state.resume_data.get('job_title', '')
         )
         st.session_state.resume_data['target_company'] = st.text_input(
-            "지원 회사", value=st.session_state.resume_data.get('target_company', '')
+            "지원 회사*", value=st.session_state.resume_data.get('target_company', '')
         )
 
     # Tab 2: 학력 (동적 리스트 로직)
