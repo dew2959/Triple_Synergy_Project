@@ -136,6 +136,9 @@ video_file = st.file_uploader(
 # -------------------------
 # 3️⃣ 분석 버튼
 # -------------------------
+# -------------------------
+# 3️⃣ 분석 버튼
+# -------------------------
 if st.button("🚀 분석 시작하기", type="primary", use_container_width=True):
 
     # 입력 검증
@@ -152,69 +155,122 @@ if st.button("🚀 분석 시작하기", type="primary", use_container_width=Tru
         st.stop()
 
     # 분석 상태 UI
-    with st.status("AI 분석을 준비 중입니다...", expanded=True) as status_ui:
+    with st.status("AI 면접 프로세스를 진행 중입니다...", expanded=True) as status_ui:
         try:
             # =========================
-            # 1) 업로드 (answer_id 받기)
+            # 1단계: 세션 생성
             # =========================
-            status_ui.write("📤 서버로 영상 업로드 중...")
+            status_ui.write("1️⃣ 면접 세션을 생성하고 있습니다...")
+            
+            session_payload = {
+                "resume_id": int(selected_resume_id) # 이력서 ID 기반 세션 생성
+            }
+            
+            session_res = requests.post(
+                f"{API_BASE}/api/v1/session/",
+                headers=headers,
+                json=session_payload,
+                timeout=10
+            )
 
+            if session_res.status_code != 200:
+                status_ui.update(label="❌ 세션 생성 실패", state="error")
+                st.error(f"세션 생성 오류: {session_res.text}")
+                st.stop()
+            
+            session_data = session_res.json()
+            session_id = session_data.get("session_id")
+            status_ui.write(f"✅ 세션 생성 완료 (ID: {session_id})")
+
+
+            # =========================
+            # 2단계: 질문 등록
+            # =========================
+            status_ui.write("2️⃣ 질문을 등록하고 있습니다...")
+            
+            question_payload = {
+                "session_id": session_id,
+                "content": question_text,
+                "category": "GENERAL", # 기본값 설정
+                "order_index": 1
+            }
+
+            question_res = requests.post(
+                f"{API_BASE}/api/v1/question/",
+                headers=headers,
+                json=question_payload,
+                timeout=10
+            )
+
+            if question_res.status_code != 200:
+                status_ui.update(label="❌ 질문 등록 실패", state="error")
+                st.error(f"질문 등록 오류: {question_res.text}")
+                st.stop()
+            
+            question_data = question_res.json()
+            question_id = question_data.get("question_id")
+            status_ui.write(f"✅ 질문 등록 완료 (ID: {question_id})")
+
+
+            # =========================
+            # 3단계: 영상 업로드 (답변 등록)
+            # =========================
+            status_ui.write("3️⃣ 답변 영상을 업로드하고 있습니다...")
+
+            # 파일 포인터를 처음으로 되돌림 (혹시 모를 에러 방지)
+            video_file.seek(0)
+            
             files = {
                 "file": (video_file.name, video_file.getvalue(), video_file.type)
             }
+            # question_id는 form-data로 전송
+            data = {
+                "question_id": str(question_id) 
+            }
 
             upload_res = requests.post(
-                f"{API_BASE}/api/v1/interview/upload",
-                headers=headers,
+                f"{API_BASE}/api/v1/answer/upload",
+                headers=headers, # Authorization 헤더 포함
                 files=files,
-                data={
-                    "question_id": question_text,         # ✅ 백엔드가 upload에서 받으면 사용
-                    "resume_id": selected_resume_id,   # ✅ 백엔드가 upload에서 받으면 사용
-                },
-                timeout=300,
+                data=data,
+                timeout=300 # 업로드는 시간이 걸릴 수 있음
             )
 
             if upload_res.status_code != 200:
-                status_ui.update(label="❌ 업로드 실패", state="error")
-                st.error(f"업로드 실패 (status={upload_res.status_code})")
-                st.code(upload_res.text)
+                status_ui.update(label="❌ 영상 업로드 실패", state="error")
+                st.error(f"업로드 오류: {upload_res.text}")
                 st.stop()
 
-            upload_result = upload_res.json()
-            answer_id = upload_result.get("answer_id") or upload_result.get("id")
+            answer_data = upload_res.json()
+            answer_id = answer_data.get("answer_id")
+            status_ui.write(f"✅ 영상 업로드 완료 (Answer ID: {answer_id})")
 
-            if not answer_id:
-                status_ui.update(label="❌ 업로드 응답 오류", state="error")
-                st.error("업로드는 성공했지만 answer_id를 받지 못했습니다.")
-                st.json(upload_result)
-                st.stop()
 
             # =========================
-            # 2) 분석 시작
+            # 4단계: AI 분석 요청 (백그라운드)
             # =========================
-            status_ui.write("🧠 AI 분석 요청 중 (STT / Visual / Voice)...")
+            status_ui.write("4️⃣ AI 분석을 요청하고 있습니다...")
 
             analyze_res = requests.post(
-                f"{API_BASE}/api/v1/interview/{answer_id}/analyze",
+                f"{API_BASE}/api/v1/analysis/session/{session_id}",
                 headers=headers,
-                data={
-                    "question": question_text,         # ✅ 백엔드가 analyze에서 받으면 사용
-                    "resume_id": selected_resume_id,   # ✅ 백엔드가 analyze에서 받으면 사용
-                },
-                timeout=300,
+                timeout=10
             )
 
             if analyze_res.status_code != 200:
                 status_ui.update(label="❌ 분석 요청 실패", state="error")
-                st.error(f"분석 요청 실패 (status={analyze_res.status_code})")
-                st.code(analyze_res.text)
+                st.error(f"분석 요청 오류: {analyze_res.text}")
                 st.stop()
 
-            status_ui.update(label="✅ 분석 요청 완료!", state="complete", expanded=False)
-
-            st.toast("AI 분석이 시작되었습니다!", icon="🎉")
-            st.caption(f"답변 ID: {answer_id}")
+            # 모든 과정 성공
+            status_ui.update(label="🎉 모든 요청이 완료되었습니다!", state="complete", expanded=False)
+            
+            st.success("분석이 시작되었습니다! '리포트' 페이지에서 결과를 확인하세요.")
+            
+            # 리포트 페이지로 이동 버튼
+            if st.button("📊 결과 리포트 보러가기"):
+                st.switch_page("pages/6_📊_리포트.py")
 
         except Exception as e:
             status_ui.update(label="⚠️ 시스템 오류", state="error")
-            st.error(str(e))
+            st.error(f"진행 중 오류 발생: {str(e)}")
