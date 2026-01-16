@@ -1,23 +1,19 @@
-from __future__ import annotations  # (타입 힌트에서 아직 정의되지 않은 클래스를 문자열 없이 쓰게 해줌. 파이썬 3.7+에서 유용)
+from __future__ import annotations
 
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-import cv2                   # 영상 프레임 읽기
-import numpy as np            # std(표준편차) 등 통계 계산
-import mediapipe as mp        # MediaPipe Image 래퍼
+import cv2
+import numpy as np
+import mediapipe as mp
 from mediapipe.tasks import python
-from mediapipe.tasks.python import vision  # FaceLandmarker 등 vision task
+from mediapipe.tasks.python import vision
 
-from app.engines.common.result import ok_result, error_result  # 공통 리턴 포맷 생성 헬퍼
+from app.engines.common.result import ok_result, error_result
 
 
-MODULE_NAME = "visual"  # 결과에 들어갈 모듈 이름(엔진 이름)
-
-# ------------------------------------------------------------
-# (1) 모델/분석 파라미터
-# ------------------------------------------------------------
+MODULE_NAME = "visual"
 
 DEFAULT_MODEL_PATH = str(
     (Path(__file__).resolve().parent / "models" / "face_landmarker.task")
@@ -82,7 +78,7 @@ def run_visual(video_path: str) -> Dict[str, Any]:
         # (3) 샘플링 설정
         # ------------------------------------------------------------
         fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
-        fps = float(fps) if fps > 0 else 30.0
+        fps = float(fps) if fps and fps > 0 else 30.0
 
         step = max(1, int(round(fps / max(1, TARGET_FPS))))
 
@@ -97,6 +93,9 @@ def run_visual(video_path: str) -> Dict[str, Any]:
 
         # ✅ MediaPipe는 timestamp가 "항상 증가"해야 함
         prev_ts_ms = -1
+
+        # ✅ POS_MSEC가 0부터 시작하지 않거나 들쭉날쭉할 수 있어서 기준점(base) 보정
+        base_ts_ms: Optional[float] = None
 
         # ------------------------------------------------------------
         # (5) 비디오 프레임 루프
@@ -115,9 +114,25 @@ def run_visual(video_path: str) -> Dict[str, Any]:
             if sampled > MAX_SAMPLES:
                 break
 
-            # ✅ timestamp_ms 생성: trunc(int) 대신 round로 중복 위험 줄이기
-            #    그리고 혹시라도 같은 값이 나오면 prev+1로 강제 증가(단조 증가 보장)
-            raw_ts_ms = int(round((frame_idx / fps) * 1000.0))
+            # --------------------------------------------------------
+            # ✅ timestamp 생성 (우선순위: POS_MSEC(base 보정) -> 프레임 기반 fallback)
+            # --------------------------------------------------------
+            raw_pos_msec = cap.get(cv2.CAP_PROP_POS_MSEC)
+
+            # base 설정: 첫 샘플 프레임에서의 pos_msec을 0 기준으로 맞춤
+            if base_ts_ms is None:
+                base_ts_ms = raw_pos_msec
+
+            # 1) POS_MSEC 기반 (base 보정)
+            raw_ts_ms = int(round(raw_pos_msec - (base_ts_ms or 0.0)))
+
+            # 2) fallback: POS_MSEC가 비정상(0만 나온다/음수/NaN 등)일 때 프레임 기반으로 계산
+            #    - 여기서 "현재 프레임 위치"를 사용하면 샘플링/스킵과 무관하게 실제 시간축에 맞음
+            if raw_ts_ms < 0 or raw_ts_ms > 10_000_000:  # 비정상 가드(너무 큰 값 방지)
+                pos_frames = cap.get(cv2.CAP_PROP_POS_FRAMES)
+                raw_ts_ms = int(round((float(pos_frames) / float(fps)) * 1000.0))
+
+            # 3) 단조 증가 보장
             timestamp_ms = raw_ts_ms if raw_ts_ms > prev_ts_ms else (prev_ts_ms + 1)
             prev_ts_ms = timestamp_ms
 
