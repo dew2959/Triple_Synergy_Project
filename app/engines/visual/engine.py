@@ -27,8 +27,6 @@ NOSE_LANDMARK_IDX = 0
 STD_REF = 0.02
 MAX_SAMPLES = 600
 
-_LANDMARKER: Optional[vision.FaceLandmarker] = None
-
 
 def _clamp01(x: float) -> float:
     return float(max(0.0, min(1.0, x)))
@@ -49,13 +47,12 @@ def build_face_landmarker(model_path: str) -> vision.FaceLandmarker:
 
 
 def _get_landmarker() -> vision.FaceLandmarker:
-    global _LANDMARKER
-    if _LANDMARKER is None:
-        _LANDMARKER = build_face_landmarker(DEFAULT_MODEL_PATH)
-    return _LANDMARKER
+     # ✅ 요청마다 새 인스턴스 생성 (서비스에서 재호출 시 timestamp 상태 문제 제거)
+    return build_face_landmarker(DEFAULT_MODEL_PATH)
 
 
 def run_visual(video_path: str) -> Dict[str, Any]:
+    landmarker = _get_landmarker()
     try:
         if not video_path or not isinstance(video_path, str):
             return error_result(MODULE_NAME, "InvalidInput", "video_path is required (non-empty string).")
@@ -202,3 +199,8 @@ def run_visual(video_path: str) -> Dict[str, Any]:
 
     except Exception as e:
         return error_result(MODULE_NAME, type(e).__name__, str(e))
+    finally:
+        try:
+            landmarker.close()
+        except Exception:
+            pass

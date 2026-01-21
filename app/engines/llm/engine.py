@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from app.engines.common.result import ok_result, error_result
+from app.utils.prompt_utils import sanitize_text, filter_or_raise, build_content_messages
+from app.core.config import Settings
 
 # ============================================================
 # ✅ .env 로드
@@ -72,58 +74,26 @@ def _clamp_int(x: Any, lo: int = 0, hi: int = 100) -> int:
 # - response_format={"type":"json_object"}로 JSON 강제
 # - 실패하면 상위에서 rule-based로 fallback
 # ============================================================
-def _call_llm_json(
-    question_text: str,
-    answer_text: str,
-    model: str,
-) -> Dict[str, Any]:
-    """
-    OpenAI Python SDK(v1) 기준: from openai import OpenAI
-    - response_format json_object 사용 → JSON만 반환 받도록 유도
-    """
-    from openai import OpenAI  # 로컬 import (키 없으면 여기서 실패 가능)
-    client = OpenAI()
+def _call_llm_json(question_text: str, answer_text: str, model: str) -> Dict[str, Any]:
+    from openai import OpenAI
+    client = OpenAI(api_key=Settings.OPENAI_API_KEY)
 
-    # 시스템 프롬프트: 반드시 JSON 객체만 반환하도록 강하게 지시
-    system_prompt = """
-너는 10년 차 시니어 면접관이다.
-지원자의 답변을 분석해 아래 JSON 형식으로만 응답하라.
-설명/사족 없이 오직 JSON만 반환하라.
+    q = sanitize_text(question_text)
+    a = sanitize_text(answer_text)
 
-{
-  "logic_score": (0~100 정수),
-  "job_fit_score": (0~100 정수, 질문 의도/직무 부합),
-  "time_management_score": (0~100 정수, 길이/전개 적절성),
-  "feedback": "한글 3문장 이내의 구체 피드백",
-  "recommended_keywords": ["키워드1", "키워드2", ...],
-  "model_answer": "다듬어진 모범 답안 예시(짧게)"
-}
-""".strip()
+    filter_or_raise(q, where="content.question")
+    filter_or_raise(a, where="content.answer")
 
-    # 유저 프롬프트: 질문/답변 전달
-    user_prompt = f"""
-[질문]
-{question_text.strip()}
+    messages = build_content_messages(q, a)
 
-[지원자 답변]
-{answer_text.strip()}
-""".strip()
-
-    # Chat Completions 호출
     resp = client.chat.completions.create(
         model=model,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        # JSON만 출력하도록 강제(가능한 범위 내에서)
+        messages=messages,
         response_format={"type": "json_object"},
     )
 
-    # message.content는 JSON 문자열이어야 함
     content = resp.choices[0].message.content or "{}"
     return json.loads(content)
-
 
 # ============================================================
 # 3) 키 없을 때/실패할 때 fallback (발표 안정성)
