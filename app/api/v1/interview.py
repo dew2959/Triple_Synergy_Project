@@ -61,6 +61,7 @@ def upload_interview_video(
     )
     
     conn.commit()
+    
     # 3. 백그라운드 분석 작업 등록
     background_tasks.add_task(
         run_background_analysis, 
