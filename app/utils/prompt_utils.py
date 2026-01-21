@@ -12,10 +12,14 @@ _BANNED = [
     # re.compile(r"..."),  # 예: 명백한 욕설/혐오 키워드 패턴
 ]
 
+_MAX_CHARS = 8000  # 필요하면 조정
+
 def sanitize_text(text: str) -> str:
     t = (text or "").strip()
     t = _RE_EMAIL.sub("[REDACTED_EMAIL]", t)
     t = _RE_PHONE.sub("[REDACTED_PHONE]", t)
+    if len(t) > _MAX_CHARS:
+        t = t[:_MAX_CHARS] + "\n...[TRUNCATED]..."
     return t
 
 def filter_or_raise(text: str, where: str = "prompt") -> None:
@@ -25,7 +29,7 @@ def filter_or_raise(text: str, where: str = "prompt") -> None:
 
 def safe_json(obj: Any) -> str:
     # dict를 prompt에 넣을 때 repr 말고 JSON 문자열로 넣어야 품질이 안정적
-    return json.dumps(obj, ensure_ascii=False)
+    return json.dumps(obj, ensure_ascii=False, default=str)
 
 def build_content_messages(question_text: str, answer_text: str) -> List[Dict[str, str]]:
     system_prompt = """

@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from app.engines.common.result import ok_result, error_result
 from app.utils.prompt_utils import sanitize_text, filter_or_raise, build_content_messages
-from app.core.config import Settings
+from app.core.config import settings
 
 # ============================================================
 # ✅ .env 로드
@@ -75,9 +75,13 @@ def _clamp_int(x: Any, lo: int = 0, hi: int = 100) -> int:
 # - 실패하면 상위에서 rule-based로 fallback
 # ============================================================
 def _call_llm_json(question_text: str, answer_text: str, model: str) -> Dict[str, Any]:
+    if not settings.OPENAI_API_KEY:
+        raise ValueError("OPENAI_API_KEY is empty")
+    
     from openai import OpenAI
-    client = OpenAI(api_key=Settings.OPENAI_API_KEY)
+    client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
+    
     q = sanitize_text(question_text)
     a = sanitize_text(answer_text)
 
@@ -93,7 +97,11 @@ def _call_llm_json(question_text: str, answer_text: str, model: str) -> Dict[str
     )
 
     content = resp.choices[0].message.content or "{}"
-    return json.loads(content)
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        return {}
+
 
 # ============================================================
 # 3) 키 없을 때/실패할 때 fallback (발표 안정성)

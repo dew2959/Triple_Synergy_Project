@@ -18,6 +18,7 @@ from app.repositories.content_repo import content_repo
 
 # Services
 # [NEW] Final Report Service
+from app.utils.report_llm_client import ReportLLMClient
 from app.services.final_report_service import FinalReportService
 
 # Schemas
@@ -25,30 +26,20 @@ from app.schemas.visual import VisualDBPayload
 from app.schemas.voice import VoiceDBPayload
 from app.schemas.content import ContentDBPayload
 
-# [NEW] LLM Client Adapter for FinalReportService
-class OpenAIClientAdapter:
-    def generate(self, prompt: str, temperature: float = 0.2) -> str:
-        try:
-            from openai import OpenAI
-            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-            response = client.chat.completions.create(
-                model="gpt-4o",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=temperature,
-                response_format={"type": "json_object"}
-            )
-            return response.choices[0].message.content or "{}"
-        except Exception as e:
-            print(f"❌ [LLM Client Error] {e}")
-            return "{}"
 
-# 인스턴스 생성
-llm_client = OpenAIClientAdapter()
-final_report_service = FinalReportService(llm_client)
+    # --- FinalReportService lazy init (import 시점 폭탄 방지) ---
+_FINAL_REPORT_SERVICE = None
+
+def _get_final_report_service():
+    global _FINAL_REPORT_SERVICE
+    if _FINAL_REPORT_SERVICE is None:
+        llm_client = ReportLLMClient(model="gpt-4o-mini")  # 또는 gpt-4o
+        _FINAL_REPORT_SERVICE = FinalReportService(llm_client)
+    return _FINAL_REPORT_SERVICE
 
 
 class AnalysisService:
-    
+ 
     # =========================================================================
     # 기능 1: 개별 답변 분석 (Visual, Voice, Content)
     # =========================================================================
@@ -265,7 +256,7 @@ class AnalysisService:
         
         try:
             # FinalReportService가 알아서 DB 긁어와서 처리함
-            report_result = final_report_service.create_or_upsert(conn, session_id)
+            report_result = _get_final_report_service().create_or_upsert(conn, session_id)
             
             if report_result:
                 print(f"✅ 종합 리포트 생성 완료 (Total Score: {report_result.total_score})")
