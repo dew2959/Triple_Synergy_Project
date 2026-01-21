@@ -1,31 +1,15 @@
 from psycopg2.extras import RealDictCursor
 
 class QuestionRepository:
-    def create(self, conn, question_data: dict):
-        """
-        질문 데이터를 DB에 저장
-        """
+    def create(self, conn, session_id: int, content: str, category: str, order_index: int):
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(
                 """
-                INSERT INTO questions (
-                    session_id, content, category, order_index
-                )
-                VALUES (
-                    %(session_id)s, 
-                    %(content)s, 
-                    %(category)s, 
-                    %(order_index)s
-                )
-                RETURNING *
+                INSERT INTO questions (session_id, content, category, order_index)
+                VALUES (%s, %s, %s, %s)
+                RETURNING question_id
                 """,
-                {
-                    "session_id": question_data["session_id"],
-                    "content": question_data["content"],
-                    # Enum은 string value로 변환해서 저장
-                    "category": question_data["category"].value,
-                    "order_index": question_data["order_index"]
-                }
+                (session_id, content, category, order_index)
             )
             return cur.fetchone()
 

@@ -1,5 +1,3 @@
-# app/utils/prompt_utils.py (기존 파일에 추가)
-
 import re
 import json
 from typing import Any, Dict, List
@@ -7,12 +5,10 @@ from typing import Any, Dict, List
 _RE_EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 _RE_PHONE = re.compile(r"\b01[016789]-?\d{3,4}-?\d{4}\b")
 
-# ⚠️ 팀 합의된 최소 패턴만 넣는 걸 추천 (너무 방대하게 넣지 말기)
-_BANNED = [
-    # re.compile(r"..."),  # 예: 명백한 욕설/혐오 키워드 패턴
-]
+# ⚠️ 팀 합의된 최소 패턴만 넣는 걸 추천
+_BANNED = []
 
-_MAX_CHARS = 8000  # 필요하면 조정
+_MAX_CHARS = 10000 
 
 def sanitize_text(text: str) -> str:
     t = (text or "").strip()
@@ -28,7 +24,6 @@ def filter_or_raise(text: str, where: str = "prompt") -> None:
             raise ValueError(f"PromptBlocked: banned content in {where}")
 
 def safe_json(obj: Any) -> str:
-    # dict를 prompt에 넣을 때 repr 말고 JSON 문자열로 넣어야 품질이 안정적
     return json.dumps(obj, ensure_ascii=False, default=str)
 
 def build_content_messages(question_text: str, answer_text: str) -> List[Dict[str, str]]:
@@ -95,3 +90,18 @@ def build_final_report_prompt(compact: Dict[str, Any]) -> str:
 {safe_json(compact)}
 """.strip()
 
+def build_resume_question_prompt(job_role: str, resume_text: str) -> str:
+    return f"""
+너는 전문 면접관이다. 지원자의 이력서 내용을 바탕으로 직무 역량과 프로젝트 경험을 검증할 수 있는 날카로운 면접 질문 2개를 생성하라.
+
+[지원 직무]
+{job_role}
+
+[이력서 내용]
+{sanitize_text(resume_text)}
+
+[규칙]
+1. 질문은 한국어로 작성할 것.
+2. 이력서의 구체적인 프로젝트나 경험을 언급하며 질문할 것.
+3. 반드시 JSON 리스트 포맷으로 출력할 것.
+""".strip()

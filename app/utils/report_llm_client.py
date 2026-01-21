@@ -1,34 +1,10 @@
-from typing import List, Optional
-from pydantic import BaseModel, Field
+from typing import Type, TypeVar
+from pydantic import BaseModel
 from openai import OpenAI
+from app.core.config import settings
 
-from app.core.config import settings  # ✅ 경로가 다르면 여기만 수정
-
-
-class ActionPlanItem(BaseModel):
-    title: str
-    description: str
-
-
-class FinalReportLLMOut(BaseModel):
-    summary_headline: str
-    overall_feedback: str
-
-    visual_summary: Optional[str] = None
-    voice_summary: Optional[str] = None
-    content_summary: Optional[str] = None
-
-    visual_strengths_json: List[str] = Field(default_factory=list)
-    visual_weaknesses_json: List[str] = Field(default_factory=list)
-
-    voice_strengths_json: List[str] = Field(default_factory=list)
-    voice_weaknesses_json: List[str] = Field(default_factory=list)
-
-    content_strengths_json: List[str] = Field(default_factory=list)
-    content_weaknesses_json: List[str] = Field(default_factory=list)
-
-    action_plans_json: List[ActionPlanItem] = Field(default_factory=list)
-
+# 제네릭 타입 정의 (Pydantic 모델을 동적으로 받기 위함)
+T = TypeVar("T", bound=BaseModel)
 
 class ReportLLMClient:
     def __init__(self, model: str = "gpt-4o-mini"):
@@ -37,17 +13,28 @@ class ReportLLMClient:
         self.client = OpenAI(api_key=settings.OPENAI_API_KEY)
         self.model = model
 
-    def generate(self, prompt: str, temperature: float = 0.2) -> str:
+    def generate(self, prompt: str, response_format: Type[T], temperature: float = 0.2) -> str:
         """
-        FinalReportService가 기대하는 형태: JSON 문자열
+        OpenAI의 Structured Output 기능을 사용하여
+        지정된 Pydantic 모델(response_format) 스키마에 맞는 JSON을 반환합니다.
         """
-        resp = self.client.responses.parse(
-            model=self.model,
-            input=[
-                {"role": "system", "content": "Return ONLY valid JSON matching the schema. No markdown."},
-                {"role": "user", "content": prompt},
-            ],
-            text_format=FinalReportLLMOut,
-            temperature=temperature,
-        )
-        return resp.output_parsed.model_dump_json()
+        try:
+            # client.beta.chat.completions.parse 사용 (OpenAI SDK v1.x 최신 표준)
+            completion = self.client.beta.chat.completions.parse(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant. Return ONLY valid JSON matching the schema. No markdown."},
+                    {"role": "user", "content": prompt},
+                ],
+                response_format=response_format,
+                temperature=temperature,
+            )
+            
+            # 파싱된 객체를 다시 JSON 문자열로 변환하여 반환
+            # (서비스 계층에서 다시 객체로 변환하거나 DB에 저장하기 용이하게)
+            return completion.choices[0].message.parsed.model_dump_json()
+            
+        except Exception as e:
+            print(f"❌ LLM Generation Error: {e}")
+            # 에러 발생 시 빈 JSON 객체 반환 (혹은 예외를 다시 던짐)
+            return "{}"
