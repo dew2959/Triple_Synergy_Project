@@ -37,7 +37,7 @@ class QuestionGenerationService:
                 generated = resume_question_engine.generate_questions(resume_text, job_role)
                 
                 for q_text in generated:
-                    middle_questions.append((q_text, "RESUME_BASED"))
+                    middle_questions.append((q_text, "GENERAL"))
                 
                 if middle_questions:
                     is_resume_analyzed = True
