@@ -13,6 +13,7 @@ from app.repositories.answer_repo import answer_repo
 from app.repositories.visual_repo import visual_repo
 from app.repositories.voice_repo import voice_repo
 from app.repositories.content_repo import content_repo
+from app.utils.prompt_utils import build_final_report_prompt, sanitize_text, filter_or_raise
 
 
 def _safe_int(x) -> Optional[int]:
@@ -98,42 +99,6 @@ def _build_session_compact(results: List[Dict[str, Any]]) -> List[Dict[str, Any]
     return compact_list
 
 
-def _build_prompt(compact_list: List[Dict[str, Any]]) -> str:
-    return f"""
-너는 면접관의 총평을 작성하는 전문 에디터다.
-사용자가 수행한 {len(compact_list)}개의 면접 질문과 답변 분석 결과가 주어진다.
-이를 바탕으로 전체적인 강점, 약점, 그리고 개선을 위한 액션 플랜을 도출하라.
-
-규칙:
-1. 입력된 데이터에 기반해서만 작성하라. (없는 사실 지어내기 금지)
-2. 출력은 오직 JSON 포맷이어야 한다. (Markdown, 설명 금지)
-3. 'overall_feedback'은 지원자에게 해주는 정중하고 구체적인 조언 형태로 작성하라.
-
-반드시 아래 JSON 스키마를 따를 것:
-{{
-  "summary_headline": "면접 전체를 관통하는 한 줄 요약 (예: 논리적이지만 시선 처리가 불안한 지원자)",
-  "overall_feedback": "전체 종합 피드백 (3~4문장)",
-
-  "visual_summary": "비주얼(표정/자세) 측면의 종합 평가",
-  "voice_summary": "음성(목소리/빠르기) 측면의 종합 평가",
-  "content_summary": "답변 내용(논리/직무적합성) 측면의 종합 평가",
-
-  "visual_strengths_json": ["강점1", "강점2"],
-  "visual_weaknesses_json": ["약점1", "약점2"],
-  "voice_strengths_json": ["강점1", "강점2"],
-  "voice_weaknesses_json": ["약점1", "약점2"],
-  "content_strengths_json": ["강점1", "강점2"],
-  "content_weaknesses_json": ["약점1", "약점2"],
-
-  "action_plans_json": [
-    {{"title": "구체적인 행동 지침 제목", "description": "어떻게 연습해야 하는지 구체적인 방법"}}
-  ]
-}}
-
-[분석 데이터]:
-{json.dumps(compact_list, ensure_ascii=False, indent=2)}
-""".strip()
-
 
 def _fallback_llm_payload() -> Dict[str, Any]:
     return {
@@ -153,51 +118,46 @@ class FinalReportService:
     def __init__(self, llm_client):
         self.llm = llm_client
 
-    def create_or_upsert(
-        self,
-        conn,
-        session_id: int
-    ) -> FinalReportResult:
-        """
-        [변경됨] session_id만 받아서 DB의 모든 답변을 조회 후 종합 리포트 생성
-        """
-        
+    def create_or_upsert(self, conn, session_id: int) -> FinalReportResult:
         # 1. 세션의 모든 답변 조회
-        # (answer_repo.get_all_by_session_id는 question_content도 포함해서 반환한다고 가정)
         answers = answer_repo.get_all_by_session_id(conn, session_id)
-        
+
         if not answers:
-            # 답변이 하나도 없으면 빈 리포트 생성 또는 에러 처리
             print(f"⚠️ 세션 {session_id}에 대한 답변이 없습니다.")
-            return None
+            return None  # (원래 타입과 맞추려면 error 처리 방식으로 바꾸는 것도 고려)
 
         # 2. 각 답변별 분석 결과 수집
         results = []
         for ans in answers:
-            ans_id = ans['answer_id']
-            # 각 레포지토리에서 결과 조회 (없으면 None 반환됨)
+            ans_id = ans["answer_id"]
             v_res = visual_repo.get_by_answer_id(conn, ans_id)
             a_res = voice_repo.get_by_answer_id(conn, ans_id)
             c_res = content_repo.get_by_answer_id(conn, ans_id)
-            
+
             results.append({
-                "question": ans.get('question_content', '질문 내용 없음'),
+                "question": ans.get("question_content", "질문 내용 없음"),
                 "visual": v_res,
                 "voice": a_res,
-                "content": c_res
+                "content": c_res,
             })
 
         # 3. 점수 계산 (평균)
         avg_v, avg_a, avg_c, total = _compute_session_scores(results)
-        
+
         # 4. LLM 프롬프트 생성 및 호출
         compact_list = _build_session_compact(results)
-        
+
         try:
-            # LLM 호출
-            prompt = _build_prompt(compact_list)
+            # ✅ prompt_utils 기반 프롬프트 생성
+            prompt = build_final_report_prompt(compact_list)
+
+            # ✅ sanitize + filter (전송 직전 공통 방어)
+            prompt = sanitize_text(prompt)
+            filter_or_raise(prompt, where="final_report.prompt")
+
             raw = self.llm.generate(prompt, temperature=0.3)
             llm_json = json.loads(raw)
+
         except Exception as e:
             print(f"❌ Final Report LLM Error: {e}")
             llm_json = _fallback_llm_payload()
@@ -232,15 +192,24 @@ class FinalReportService:
             total_score=row["total_score"],
             summary_headline=row.get("summary_headline"),
             overall_feedback=row.get("overall_feedback"),
-            
+
             visual=ModuleScoreSummary(avg_score=row["avg_visual_score"], summary=llm_json.get("visual_summary")),
             voice=ModuleScoreSummary(avg_score=row["avg_voice_score"], summary=llm_json.get("voice_summary")),
             content=ModuleScoreSummary(avg_score=row["avg_content_score"], summary=llm_json.get("content_summary")),
-            
-            visual_points=StrengthWeakness(strengths=row.get("visual_strengths_json"), weaknesses=row.get("visual_weaknesses_json")),
-            voice_points=StrengthWeakness(strengths=row.get("voice_strengths_json"), weaknesses=row.get("voice_weaknesses_json")),
-            content_points=StrengthWeakness(strengths=row.get("content_strengths_json"), weaknesses=row.get("content_weaknesses_json")),
-            
+
+            visual_points=StrengthWeakness(
+                strengths=row.get("visual_strengths_json") or [],
+                weaknesses=row.get("visual_weaknesses_json") or [],
+            ),
+            voice_points=StrengthWeakness(
+                strengths=row.get("voice_strengths_json") or [],
+                weaknesses=row.get("voice_weaknesses_json") or [],
+            ),
+            content_points=StrengthWeakness(
+                strengths=row.get("content_strengths_json") or [],
+                weaknesses=row.get("content_weaknesses_json") or [],
+            ),
+
             action_plans=[ActionPlan(**ap) for ap in (row.get("action_plans_json") or [])],
-            created_at=str(row.get("created_at"))
+            created_at=str(row.get("created_at")) if row.get("created_at") else None,
         )

@@ -64,7 +64,7 @@ def _confidence_proxy_from_segments(segments: List[Dict[str, Any]]) -> float:
 def run_stt(
     audio_path: str,
     model_name: str = "small",
-    language: Optional[str] = None,   # 예: "ko"
+    language: Optional[str] = "ko",   # 예: "ko"
 ) -> Dict[str, Any]:
     """
     STT 엔진 (Whisper) - v0 규격 반환

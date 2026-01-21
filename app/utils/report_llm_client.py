@@ -2,7 +2,7 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 from openai import OpenAI
 
-from app.core.config import Settings  # ✅ 경로가 다르면 여기만 수정
+from app.core.config import settings  # ✅ 경로가 다르면 여기만 수정
 
 
 class ActionPlanItem(BaseModel):
@@ -32,9 +32,9 @@ class FinalReportLLMOut(BaseModel):
 
 class ReportLLMClient:
     def __init__(self, model: str = "gpt-4o-mini"):
-        if not Settings.OPENAI_API_KEY:
+        if not settings.OPENAI_API_KEY:
             raise ValueError("OPENAI_API_KEY is empty. Check .env loading and settings.")
-        self.client = OpenAI(api_key=Settings.OPENAI_API_KEY)
+        self.client = OpenAI(api_key=settings.OPENAI_API_KEY)
         self.model = model
 
     def generate(self, prompt: str, temperature: float = 0.2) -> str:
