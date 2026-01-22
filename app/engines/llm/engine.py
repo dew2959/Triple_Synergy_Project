@@ -1,273 +1,185 @@
 from __future__ import annotations
 
 import os
-import json
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from pydantic import BaseModel, Field
 
+# LangChain
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+
+# Common & Utils
 from app.engines.common.result import ok_result, error_result
-from app.utils.prompt_utils import sanitize_text, filter_or_raise, build_content_messages
+from app.utils.prompt_utils import sanitize_text
 from app.core.config import settings
 
-# ============================================================
-# ✅ .env 로드
-# - 엔진을 단독 실행할 때도 OPENAI_API_KEY를 읽도록 함
-# - dotenv가 없거나 경로 문제가 생겨도 엔진이 죽지 않게 try/except 처리
-# ============================================================
+from app.schemas.content import ContentAnalysisOut
+
+# .env 로드 (단독 실행 시 필요)
 try:
     from dotenv import load_dotenv
-
-    # engine.py 위치: .../app/engines/content/engine.py
-    # project root: .../ (app 폴더 상위)
     PROJECT_ROOT = Path(__file__).resolve().parents[3]
     load_dotenv(dotenv_path=PROJECT_ROOT / ".env", override=False)
 except Exception:
-    # python-dotenv 미설치/경로 이슈여도 엔진이 죽지 않게 pass
     pass
 
 MODULE_NAME = "content"
 
 
-# ============================================================
-# 1) 간단 토크나이저(한국어 토큰 대충 뽑기)
-# - LLM이 없을 때(rule-based fallback) 키워드/유사도용으로 사용
-# ============================================================
+
+# -------------------------------------------------------------------------
+# 2. Rule-Based Fallback (LLM 실패 시 사용)
+# -------------------------------------------------------------------------
 def _tokenize_ko(text: str) -> List[str]:
-    """한글 2글자 이상 토큰만 추출(아주 단순)"""
     return re.findall(r"[가-힣]{2,}", text or "")
 
-
 def _top_keywords(text: str, k: int = 7) -> List[str]:
-    """
-    빈도 기반 상위 키워드 k개 뽑기 (아주 러프)
-    - 흔한 말투/불용어(stopwords) 일부 제거
-    """
     toks = _tokenize_ko(text)
     stop = {"저는", "제가", "그때", "그리고", "그래서", "때문에", "합니다", "했습니다", "있습니다", "것입니다"}
     toks = [t for t in toks if t not in stop]
-
-    # 빈도 집계
     freq: Dict[str, int] = {}
-    for t in toks:
-        freq[t] = freq.get(t, 0) + 1
-
-    # 빈도 내림차순 + 알파벳(가나다) 오름차순 정렬 후 k개
+    for t in toks: freq[t] = freq.get(t, 0) + 1
     return [w for w, _ in sorted(freq.items(), key=lambda x: (-x[1], x[0]))[:k]]
 
-
 def _clamp_int(x: Any, lo: int = 0, hi: int = 100) -> int:
-    """
-    점수 값 안전 변환:
-    - 숫자로 변환 실패하면 0
-    - 범위는 lo~hi로 clamp
-    """
     try:
         v = int(round(float(x)))
     except Exception:
         v = 0
     return max(lo, min(hi, v))
 
-
-# ============================================================
-# 2) OpenAI 호출 (키가 있으면 사용)
-# - response_format={"type":"json_object"}로 JSON 강제
-# - 실패하면 상위에서 rule-based로 fallback
-# ============================================================
-def _call_llm_json(question_text: str, answer_text: str, model: str) -> Dict[str, Any]:
-    if not settings.OPENAI_API_KEY:
-        raise ValueError("OPENAI_API_KEY is empty")
-    
-    from openai import OpenAI
-    client = OpenAI(api_key=settings.OPENAI_API_KEY)
-
-    
-    q = sanitize_text(question_text)
-    a = sanitize_text(answer_text)
-
-    filter_or_raise(q, where="content.question")
-    filter_or_raise(a, where="content.answer")
-
-    messages = build_content_messages(q, a)
-
-    resp = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        response_format={"type": "json_object"},
-    )
-
-    content = resp.choices[0].message.content or "{}"
-    try:
-        return json.loads(content)
-    except json.JSONDecodeError:
-        return {}
-
-
-# ============================================================
-# 3) 키 없을 때/실패할 때 fallback (발표 안정성)
-# - LLM 호출이 실패해도 "흐름이 끊기지 않게" 최소 결과 생성
-# ============================================================
-def _rule_based_analyze(
-    question_text: str,
-    answer_text: str,
-    duration_sec: Optional[float],
-) -> Dict[str, Any]:
-    """
-    LLM 없이도 최소 점수/피드백을 만들어내는 규칙 기반 분석.
-    목적: "완벽"이 아니라 "끊기지 않음(안정성)".
-    """
+def _rule_based_analyze(question_text: str, answer_text: str, duration_sec: Optional[float]) -> Dict[str, Any]:
     text = (answer_text or "").strip()
     n_chars = len(text)
-
-    # 간단 키워드 추출
     kws = _top_keywords(text, k=7)
 
-    # --------------------------
-    # logic_score: 길이 + 구체성 힌트 기반(아주 단순 proxy)
-    # --------------------------
-    has_numbers = bool(re.search(r"\d", text))  # 숫자 포함 여부
+    has_numbers = bool(re.search(r"\d", text))
     has_example = any(w in text for w in ["예를", "경험", "프로젝트", "문제", "해결", "개선", "성과"])
 
-    logic = 40
-    logic += 20 if n_chars >= 200 else 0
-    logic += 20 if has_example else 0
-    logic += 10 if has_numbers else 0
-    logic_score = _clamp_int(logic)
-
-    # --------------------------
-    # job_fit_score: 질문-답변 토큰 겹침 정도(아주 러프)
-    # --------------------------
+    logic = 40 + (20 if n_chars >= 200 else 0) + (20 if has_example else 0) + (10 if has_numbers else 0)
+    
     q_toks = set(_tokenize_ko(question_text))
     a_toks = set(_tokenize_ko(text))
     overlap = len(q_toks & a_toks)
-    job_fit_score = _clamp_int(45 + overlap * 6)
+    job_fit = 45 + overlap * 6
 
-    # --------------------------
-    # time_management_score: 길이/전개 적절성 proxy
-    # - duration이 있으면 너무 짧거나 길면 감점
-    # - duration이 없으면 텍스트 길이로만 감점
-    # --------------------------
     tm = 70
     if duration_sec and duration_sec > 0:
-        if duration_sec < 30:
-            tm -= 25
-        elif duration_sec > 180:
-            tm -= 15
+        if duration_sec < 30: tm -= 25
+        elif duration_sec > 180: tm -= 15
     else:
-        if n_chars < 120:
-            tm -= 20
-        elif n_chars > 700:
-            tm -= 10
-    time_management_score = _clamp_int(tm)
+        if n_chars < 120: tm -= 20
+        elif n_chars > 700: tm -= 10
 
-    # --------------------------
-    # feedback: 조건에 맞게 최대 3문장 구성
-    # --------------------------
-    feedback_parts: List[str] = []
-    if n_chars < 150:
-        feedback_parts.append("답변이 다소 짧아 핵심 근거(경험/수치)가 부족합니다.")
-    if not has_example:
-        feedback_parts.append("구체적 사례(상황-행동-결과)를 1개 넣으면 설득력이 올라갑니다.")
-    if duration_sec and duration_sec > 180:
-        feedback_parts.append("길이가 길어 요점 중심으로 구조화하면 더 좋습니다.")
-    if not feedback_parts:
-        feedback_parts.append("전체 구조가 비교적 명확합니다. 핵심 성과를 수치로 한 번 더 강조해보세요.")
-
-    feedback = " ".join(feedback_parts[:3])
-
-    # model_answer: 아주 짧은 템플릿 형태
-    model_answer = "핵심 강점 1문장 → 구체 사례(문제/행동/결과) → 직무 연결 1문장 순으로 짧게 정리해보세요."
-
+    feedback_parts = []
+    if n_chars < 150: feedback_parts.append("답변이 짧아 핵심 근거가 부족합니다.")
+    if not has_example: feedback_parts.append("구체적 사례를 포함하면 설득력이 높아집니다.")
+    if not feedback_parts: feedback_parts.append("구조가 명확합니다. 핵심 성과를 수치로 강조해보세요.")
+    
     return {
-        "logic_score": logic_score,
-        "job_fit_score": job_fit_score,
-        "time_management_score": time_management_score,
-        "feedback": feedback,
+        "logic_score": _clamp_int(logic),
+        "job_fit_score": _clamp_int(job_fit),
+        "time_management_score": _clamp_int(tm),
+        "feedback": " ".join(feedback_parts[:3]),
         "recommended_keywords": kws,
-        "model_answer": model_answer,
-        # 디버그: 어떤 방식으로 분석했는지 표기
-        "method": "rule_based",
+        "model_answer": "핵심 강점 → 구체 사례 → 직무 연결 순으로 정리해보세요.",
+        "method": "rule_based"
     }
 
-
-# ============================================================
-# 4) v0 엔진 엔트리
-# - v0 contract 준수: 항상 metrics(dict), events(list), error(null or dict)
-# - answer_text 필수
-# - OPENAI_API_KEY 있으면 LLM 시도, 실패하면 rule-based fallback
-# - ✅ 요청사항: wpm 관련 로직/필드 모두 제거
-# ============================================================
+# -------------------------------------------------------------------------
+# 3. Main Engine Function (LangChain)
+# -------------------------------------------------------------------------
 def run_content(
     answer_text: str,
     question_text: str = "",
     duration_sec: Optional[float] = None,
-    model: str = "gpt-4o-mini",
+    model: str = "gpt-4o",  # 기본값 변경 (필요시 gpt-4o-mini 등 사용)
 ) -> Dict[str, Any]:
     """
-    Content(LLM) 엔진 - v0 반환
-
-    - answer_text: 필수
-    - question_text: 선택(있으면 분석 품질 올라감)
-    - duration_sec: 선택(시간/전개 평가 proxy에 활용)
-    - OPENAI_API_KEY가 있으면 LLM 호출, 없거나 실패하면 rule-based fallback
+    Content(LLM) 엔진 - LangChain 적용 버전
     """
     try:
-        # 1) 필수 입력 검증 (없으면 v0 error_result)
-        if answer_text is None or answer_text.strip() == "":
+        # 1) 필수 검증
+        if not answer_text or not answer_text.strip():
             return error_result(MODULE_NAME, "CONTENT_ERROR", "answer_text is required")
 
-        # 2) 입력 정리(빈 문자열 방어)
-        q = question_text or ""
-        a = answer_text or ""
+        # 2) 입력 정리
+        q = sanitize_text(question_text or "")
+        a = sanitize_text(answer_text or "")
+        
+        # 3) LLM 사용 여부
+        api_key = settings.OPENAI_API_KEY or os.getenv("OPENAI_API_KEY")
+        
+        metrics = {}
+        used_method = "rule_based"
 
-        # 3) LLM 사용 가능 여부 판단
-        use_llm = bool(os.getenv("OPENAI_API_KEY"))
-        analysis: Dict[str, Any]
-
-        # 4) LLM 시도 → 실패 시 fallback
-        if use_llm:
+        # 4) LangChain 실행
+        if api_key:
             try:
-                analysis = _call_llm_json(q, a, model=model)
-                analysis["method"] = "openai"  # 디버그용
-            except Exception:
-                analysis = _rule_based_analyze(q, a, duration_sec)
+                llm = ChatOpenAI(
+                    model=model,
+                    api_key=api_key,
+                    temperature=0.3
+                )
+                
+                prompt = ChatPromptTemplate.from_messages([
+                    ("system", """
+                    너는 10년 차 시니어 면접관이다.
+                    지원자의 답변을 분석하여 논리성, 직무적합성, 시간관리를 평가하라.
+                    
+                    [평가 기준]
+                    - logic_score: 답변의 구조(STAR 기법 등)와 논리적 흐름 (0~100)
+                    - job_fit_score: 질문 의도 파악 및 직무 연관성 (0~100)
+                    - time_management_score: 답변 길이와 전개의 적절성 (0~100)
+                    - feedback: 개선을 위한 구체적 조언 (3문장 이내)
+                    - model_answer: 더 나은 답변 예시 (요약 형태)
+                    - recommended_keywords: 답변 핵심 키워드 추출
+                    """),
+                    ("human", """
+                    [면접 질문]
+                    {question}
+
+                    [지원자 답변]
+                    {answer}
+                    
+                    위 내용을 분석해줘.
+                    """)
+                ])
+                
+                # Structured Output (JSON 파싱 자동화)
+                chain = prompt | llm.with_structured_output(ContentAnalysisOut)
+                
+                result: ContentAnalysisOut = chain.invoke({"question": q, "answer": a})
+                
+                metrics = result.model_dump()
+                used_method = "openai_langchain"
+                
+            except Exception as e:
+                print(f"⚠️ [LangChain Engine Error] Fallback to rule-based: {e}")
+                metrics = _rule_based_analyze(q, a, duration_sec)
         else:
-            analysis = _rule_based_analyze(q, a, duration_sec)
+            metrics = _rule_based_analyze(q, a, duration_sec)
 
-        # 5) 안전한 값 꺼내기(점수 clamp, 문자열 strip)
-        logic_score = _clamp_int(analysis.get("logic_score", 0))
-        job_fit_score = _clamp_int(analysis.get("job_fit_score", 0))
-        time_management_score = _clamp_int(analysis.get("time_management_score", 0))
-
-        feedback = (analysis.get("feedback") or "").strip()
-        model_answer = (analysis.get("model_answer") or "").strip()
-
-        # keywords 키 호환: recommended_keywords 또는 keywords 허용
-        keywords = analysis.get("recommended_keywords") or analysis.get("keywords") or []
-        if not isinstance(keywords, list):
-            keywords = []
-        keywords = [str(k).strip() for k in keywords if str(k).strip()]
-
-        # 6) metrics 구성
-        # - DB(answer_content_analysis) 매핑 가능한 키는 고정
-        # - method/model은 테스트/운영 디버그용으로 남김(요청 반영)
-        metrics: Dict[str, Any] = {
-            # ✅ DB(answer_content_analysis)에 바로 매핑 가능한 키들
-            "logic_score": logic_score,
-            "job_fit_score": job_fit_score,
-            "time_management_score": time_management_score,
-            "feedback": feedback,
-            "model_answer": model_answer,
-            "keywords": keywords,  # DB에는 keywords_json(JSONB)에 저장
-
-            # ✅ 운영/디버그용 (DB 저장은 선택)
-            "method": analysis.get("method", "unknown"),
+        # 5) 최종 반환 데이터 구성
+        # 키워드 필드명 통일 (keywords <- recommended_keywords)
+        keywords = metrics.get("recommended_keywords", [])
+        
+        final_metrics = {
+            "logic_score": _clamp_int(metrics.get("logic_score", 0)),
+            "job_fit_score": _clamp_int(metrics.get("job_fit_score", 0)),
+            "time_management_score": _clamp_int(metrics.get("time_management_score", 0)),
+            "feedback": metrics.get("feedback", "").strip(),
+            "model_answer": metrics.get("model_answer", "").strip(),
+            "keywords": keywords,  # DB 호환용 이름
+            
+            # 메타데이터
+            "method": used_method,
             "model": model,
         }
 
-        # 7) v0 contract: events는 MVP에서는 항상 []
-        return ok_result(MODULE_NAME, metrics=metrics, events=[])
+        return ok_result(MODULE_NAME, metrics=final_metrics, events=[])
 
     except Exception as e:
-        # 엔진은 예외를 터뜨리지 않고 error_result로 감싸서 반환
         return error_result(MODULE_NAME, type(e).__name__, str(e))
