@@ -4,22 +4,23 @@ from fastapi import APIRouter, UploadFile, File, Depends, Form, BackgroundTasks,
 from psycopg2.extensions import connection 
 
 from app.api.deps import get_db_conn
-from app.schemas.interview import AnswerResponse
+from app.schemas.interview import AnswerResponse, RetryAnalysisResponse
 from app.repositories.answer_repo import answer_repo
 from app.services.analysis_service import analysis_service
-
-# [핵심] 백그라운드 작업을 위해 가져옵니다.
-from app.core.db import get_db_connection 
+from app.core.db import get_db_connection
+from app.core.config import settings
 
 router = APIRouter()
 
-# 영상 저장 경로 설정
-UPLOAD_DIR = "uploads"
+# ==============================
+# 업로드 경로 설정
+# ==============================
+UPLOAD_DIR = getattr(settings, "UPLOAD_DIR", "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
 # =========================================================
-#  Background Task Wrapper
+#  백그라운드 분석 실행
 # =========================================================
 def run_background_analysis(answer_id: int, file_path: str):
     """
@@ -59,9 +60,8 @@ def upload_interview_video(
         question_id=question_id, 
         video_path=file_path
     )
-    
     conn.commit()
-    
+
     # 3. 백그라운드 분석 작업 등록
     background_tasks.add_task(
         run_background_analysis, 
@@ -72,15 +72,17 @@ def upload_interview_video(
     # 4. 결과 반환
     return new_answer
 
-
-@router.post("/{answer_id}/analyze")
+# ==============================
+# 재분석 요청 (관리자/디버깅용)
+# ==============================
+@router.post("/{answer_id}/analyze", response_model=RetryAnalysisResponse)
 def retry_analysis(
     answer_id: int,
     background_tasks: BackgroundTasks,
     conn: connection = Depends(get_db_conn)
 ):
     """
-    [재분석 요청] (관리자/디버깅용)
+    기존 답변 재분석 요청
     """
     # 1. 답변 존재 확인
     answer = answer_repo.get_by_id(conn, answer_id)
@@ -99,4 +101,4 @@ def retry_analysis(
         answer['video_path']
     )
     
-    return {"message": f"Re-analysis started for answer {answer_id}"}
+    return RetryAnalysisResponse(message=f"Re-analysis started for answer {answer_id}")
