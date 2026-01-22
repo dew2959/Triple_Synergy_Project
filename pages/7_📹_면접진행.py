@@ -1,9 +1,6 @@
 import streamlit as st
-from streamlit_webrtc import webrtc_streamer, WebRtcMode, VideoTransformerBase
-import cv2
-import numpy as np
+from streamlit_webrtc import webrtc_streamer, WebRtcMode
 import requests
-import base64
 import time
 from app.utils.camera_utils import FaceGuideTransformer
 
@@ -252,13 +249,28 @@ if idx < len(questions):
     with col_user:
         st.markdown("### 🎙️ 답변 녹화")
 
+        # STUN 서버 설정 정의 
+        rtc_configuration = {
+            "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+        }
+
+        # 1. WebRTC 스트리머 설정 (STUN 서버 추가됨)
         webrtc_ctx = webrtc_streamer(
             key=f"user_record_{idx}",
             mode=WebRtcMode.SENDRECV,
-            video_processor_factory=FaceGuideTransformer,
+            video_processor_factory=FaceGuideTransformer,  # app/utils/camera_utils.py의 클래스
             media_stream_constraints={"video": True, "audio": True},
+            rtc_configuration={
+                "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+            },
             async_processing=True
         )
+
+        # 스트리밍이 실행 중이고 프로세서가 준비되었을 때만 실행
+        if webrtc_ctx.video_processor:
+            # FaceGuideTransformer 클래스 안에 'recording'이라는 속성이 있다고 가정합니다.
+            # 없다면 FaceGuideTransformer 클래스에 self.recording = False 를 추가해야 합니다.
+            webrtc_ctx.video_processor.recording = st.session_state.recording_active
 
         # ---------------------------
         # 녹화 상태 UI
@@ -270,10 +282,16 @@ if idx < len(questions):
                 st.rerun()
 
         else:
-            st.warning("🔴 녹화 중입니다. 답변을 마치면 종료하세요.")
+            st.warning("🔴 녹화 중입니다... 답변이 끝나면 종료 버튼을 누르세요.")
 
             if st.button("⏹️ 답변 녹화 종료", type="primary", use_container_width=True):
-                if webrtc_ctx and webrtc_ctx.video_processor:
+                # 녹화 종료 시점 처리
+                if webrtc_ctx.video_processor:
+                    # 프로세서 내부의 녹화 종료 및 파일 저장 메소드 호출
+                    # (FaceGuideTransformer 내부에 이 로직이 구현되어 있어야 함)
+                    # 예: video_path = webrtc_ctx.video_processor.stop_recording()
+                    
+                    # 기존 코드 활용
                     video_path = webrtc_ctx.video_processor.get_recorded_video()
 
                     if video_path:
@@ -282,7 +300,14 @@ if idx < len(questions):
                         st.success("✅ 녹화가 완료되었습니다.")
                         st.rerun()
                     else:
-                        st.error("녹화된 영상이 없습니다.")
+                        st.error("녹화된 영상 데이터가 없습니다.")
+                        st.session_state.recording_active = False
+                        st.rerun()
+                else:
+                    st.error("카메라 연결이 끊겨 영상을 저장할 수 없습니다.")
+                    # 상태 강제 초기화
+                    st.session_state.recording_active = False
+                    st.rerun()
 
     # ==========================
     # [하단] 제출 및 이동 버튼
@@ -292,7 +317,7 @@ if idx < len(questions):
         st.divider()
         
         # [A] 중간 질문 (1~4번) -> "다음 질문" 버튼
-        if idx < len(questions) - 1:
+        if idx < 4:
             if st.button("➡ 제출하고 다음 질문으로 이동", type="primary", use_container_width=True):
                 with st.spinner("답변을 업로드 중입니다..."):
                     try:
