@@ -54,7 +54,7 @@ if full_data:
     # (A) 아직 분석이 안 끝난 경우
     if not final_report:
         st.warning("⚠️ 아직 종합 리포트가 생성되지 않았습니다.")
-        st.write("모든 답변에 대한 AI 분석이 완료되면 리포트가 생성됩니다.")
+        st.write("모든 답변에 대한 AI분석이 완료되면 리포트가 생성됩니다.")
         
         # 개별 답변 진행 상황 표시
         st.subheader("답변 분석 현황")

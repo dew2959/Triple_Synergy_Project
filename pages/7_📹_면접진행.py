@@ -264,10 +264,35 @@ if idx < len(questions):
 
     st.markdown("### 🎙️ 답변 녹화")
 
-    components.html(
+    video_base64 = components.html(
     """
-    <video id="preview" autoplay muted playsinline
-        style="width:100%; border-radius:12px;"></video>
+    <style>
+    #video-wrapper {
+    position: relative;
+    width: 100%;
+    }
+
+    #preview {
+    width: 100%;
+    border-radius: 12px;
+    z-index: 1;
+    }
+
+    #controls {
+    position: relative;
+    z-index: 10; /* 🔥 핵심 */
+    margin-top: 12px;
+    }
+
+    button {
+    font-size: 16px;
+    padding: 8px 14px;
+    }
+    </style>
+
+    <div id="video-wrapper">
+    <video id="preview" autoplay muted playsinline></video>
+    </div>
 
     <div style="margin-top:8px; font-size:18px;">
     ⏱ <span id="timer">00:00</span> / 02:00
@@ -275,11 +300,9 @@ if idx < len(questions):
 
     <div id="warning" style="color:red; font-weight:bold; margin-top:6px;"></div>
 
-    <input type="hidden" id="videoData" />
-
-    <div style="margin-top:10px;">
-    <button onclick="startRecording()">▶ 녹화 시작</button>
-    <button onclick="stopRecording()">■ 녹화 종료</button>
+    <div id="controls">
+    <button id="startBtn" onclick="startRecording()">▶ 녹화 시작</button>
+    <button id="stopBtn" onclick="stopRecording()" disabled>■ 녹화 종료</button>
     </div>
 
     <script>
@@ -287,9 +310,17 @@ if idx < len(questions):
     let recordedChunks = [];
     let timerInterval;
     let elapsed = 0;
+    let stream;
 
-    const MAX_TIME = 120;   // 최대 120초
-    const WARNING_TIME = 105; // 15초 남았을 때
+    const MAX_TIME = 120;
+    const WARNING_TIME = 105;
+
+    // 카메라 항상 켜기
+    navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+    .then(s => {
+    stream = s;
+    document.getElementById("preview").srcObject = stream;
+    });
 
     function formatTime(sec) {
     const m = String(Math.floor(sec / 60)).padStart(2, "0");
@@ -297,17 +328,14 @@ if idx < len(questions):
     return `${m}:${s}`;
     }
 
-    async function startRecording() {
+    function startRecording() {
+    document.getElementById("startBtn").disabled = true;
+    document.getElementById("stopBtn").disabled = false;
+
     elapsed = 0;
     recordedChunks = [];
-    document.getElementById("warning").innerText = "";
     document.getElementById("timer").innerText = "00:00";
-
-    const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true
-    });
-    document.getElementById("preview").srcObject = stream;
+    document.getElementById("warning").innerText = "";
 
     mediaRecorder = new MediaRecorder(stream);
 
@@ -332,43 +360,49 @@ if idx < len(questions):
     }
 
     function stopRecording() {
+    document.getElementById("stopBtn").disabled = true;
+
     if (!mediaRecorder || mediaRecorder.state === "inactive") return;
 
     clearInterval(timerInterval);
     mediaRecorder.stop();
 
     mediaRecorder.onstop = () => {
+        document.getElementById("startBtn").disabled = false;
+
         const blob = new Blob(recordedChunks, { type: "video/webm" });
         const reader = new FileReader();
 
         reader.onloadend = () => {
         const base64data = reader.result.split(",")[1];
-        document.getElementById("videoData").value = base64data;
-
         window.parent.postMessage({
             type: "streamlit:setComponentValue",
             value: base64data
         }, "*");
         };
+
         reader.readAsDataURL(blob);
     };
     }
     </script>
     """,
-    height=480
+    height=1000,
+    scrolling=True
     )
 
 
-    # JS에서 전달된 video base64 받기
-    if st.session_state.get("component_value"):
-        st.session_state.recorded_video = st.session_state.component_value
+    if video_base64:
+        st.session_state.recorded_video = video_base64
+
 
     #업로드 버튼 
     if st.session_state.get("recorded_video"):
-        video_bytes = base64.b64decode(st.session_state.recorded_video)
+        # 5번째 질문 이전
+        if idx < 4:
+            if st.button("➡ 다음 질문", type="primary", use_container_width=True):
 
-        if st.button("📤 답변 제출", type="primary", use_container_width=True):
-            with st.status("🚀 답변 업로드 중...", expanded=True):
+                video_bytes = base64.b64decode(st.session_state.recorded_video)
+
                 files = {
                     "file": ("answer.webm", video_bytes, "video/webm")
                 }
@@ -384,14 +418,33 @@ if idx < len(questions):
                 )
 
                 if res.status_code in (200, 201):
-                    st.success("✅ 업로드 완료")
                     st.session_state.recorded_video = None
                     st.session_state.current_question_idx += 1
-                    time.sleep(1)
                     st.rerun()
                 else:
                     st.error("❌ 업로드 실패")
 
+        # 5번째 질문 (마지막)
+        else:
+            if st.button("🧠 모의면접 종료 및 분석 시작", type="primary", use_container_width=True):
+
+                video_bytes = base64.b64decode(st.session_state.recorded_video)
+
+                files = {
+                    "file": ("answer.webm", video_bytes, "video/webm")
+                }
+                data = {
+                    "question_id": str(current_q["question_id"])
+                }
+
+                requests.post(
+                    f"{API_BASE}/api/v1/interview/upload",
+                    headers=headers,
+                    files=files,
+                    data=data
+                )
+
+                st.switch_page("pages/6_📊_리포트.py")
 
 else:
     # -----------------------------
