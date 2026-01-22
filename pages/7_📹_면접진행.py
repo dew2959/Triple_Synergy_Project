@@ -370,6 +370,9 @@ if idx < len(questions):
     # ---------------------------------------------------------
     # 🎯 화면 2분할 (왼쪽: AI 면접관 / 오른쪽: 내 모습)
     # ---------------------------------------------------------
+    # (2) 질문 텍스트 표시
+    st.info(f"🗣️ **Q{idx+1}.** {current_q['content']}")
+    st.caption(f"유형: {current_q['category']}")
     col_ai, col_user = st.columns([1, 1], gap="medium")
 
     # ==========================
@@ -378,41 +381,70 @@ if idx < len(questions):
     with col_ai:
         st.markdown("### 👩‍💼 AI 면접관")
         
-        # 1. 면접관 이미지
-        interviewer_img = "https://cdn.pixabay.com/photo/2021/05/04/13/29/portrait-6228705_1280.jpg"
-        st.image(interviewer_img, caption="AI 면접관", use_container_width=True)
+        # ✅ 7_면접 진행.py (with col_ai 블록 안) : TTS -> Wav2Lip(lipsync) -> video 재생
+        # - interviewer_img(URL) 그대로 백엔드에 전달
+        # - 질문별로 mp3/mp4를 session_state에 캐시해서 중복 생성 방지
 
-        # 2. TTS 음성 생성 및 재생 로직
+        # (1) 면접관 이미지 (이미 너 코드에 있던 거)
+        interviewer_img = "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8M3x8JUVDJTk2JUJDJUVBJUI1JUI0fGVufDB8fDB8fHww"
+        # st.image(interviewer_img, caption="AI 면접관", use_container_width=True)
+
+
+
+        # (3) TTS 생성(이미 있던 로직 유지) + 캐시 키
         tts_key = f"tts_audio_{current_q['question_id']}"
-        
         if tts_key not in st.session_state:
             with st.spinner("면접관이 질문을 읽어주는 중입니다..."):
                 try:
-                    # 백엔드 TTS API 호출
                     tts_res = requests.post(
                         f"{API_BASE}/api/v1/interview/tts",
                         headers=headers,
-                        json={
-                            "text": current_q['content'],
-                            "voice": "nova"  # 목소리 톤
-                        },
-                        timeout=10
+                        json={"text": current_q["content"], "voice": "nova"},
+                        timeout=30,
                     )
                     if tts_res.status_code == 200:
-                        st.session_state[tts_key] = tts_res.content
+                        st.session_state[tts_key] = tts_res.content  # mp3 bytes
                     else:
-                        st.warning("음성 데이터를 불러오지 못했습니다.")
+                        st.warning(f"TTS 실패: {tts_res.status_code} {tts_res.text[:200]}")
                 except Exception as e:
-                    print(f"TTS Error: {e}")
+                    st.warning(f"TTS Error: {e}")
 
-        # 3. 질문 텍스트 및 오디오 재생
-        st.info(f"🗣️ **Q{idx+1}.** {current_q['content']}")
-        
-        if tts_key in st.session_state:
+        # (4) ✅ Wav2Lip(mp4) 생성 + 캐시
+        lipsync_key = f"lipsync_mp4_{current_q['question_id']}"
+        if tts_key in st.session_state and lipsync_key not in st.session_state:
+            with st.spinner("면접관 립싱크 영상을 생성 중입니다..."):
+                try:
+                    files = {
+                        "audio": ("tts.mp3", st.session_state[tts_key], "audio/mpeg")
+                    }
+                    data = {
+                        "avatar_url": interviewer_img,  # ✅ 여기!
+                        "resize_factor": "1",
+                        "nosmooth": "false",
+                    }
+
+                    ls_res = requests.post(
+                        f"{API_BASE}/api/v1/interview/lipsync",
+                        headers=headers,
+                        files=files,
+                        data=data,
+                        timeout=180,
+                    )
+
+                    if ls_res.status_code == 200:
+                        st.session_state[lipsync_key] = ls_res.content  # mp4 bytes
+                    else:
+                        st.warning(f"립싱크 실패: {ls_res.status_code} {ls_res.text[:300]}")
+                except Exception as e:
+                    st.warning(f"립싱크 Error: {e}")
+
+        # (5) ✅ mp4 있으면 영상 재생, 없으면 오디오 fallback
+        if lipsync_key in st.session_state:
+            st.video(st.session_state[lipsync_key], format="video/mp4", autoplay=True)
+        elif tts_key in st.session_state:
             st.audio(st.session_state[tts_key], format="audio/mp3", autoplay=True)
-        
-        st.caption(f"유형: {current_q['category']}")
-
+        else:
+            st.warning("오디오/영상 생성에 실패했습니다.")
 
     # ==========================
     # [오른쪽] 지원자(나) 녹화 영역
@@ -431,14 +463,16 @@ if idx < len(questions):
         #video-wrapper {
             position: relative;
             width: 100%;
+            aspect-ratio: {ASPECT_W}/{ASPECT_H};
             background: #000;
             border-radius: 12px;
             overflow: hidden;
         }
         video {
             width: 100%;
+            height: 100%;             /* ✅ wrapper 높이를 꽉 채움 */
             height: auto;
-            display: block;
+            object-fit: cover;        /* ✅ 비율 맞추면서 크롭 */
             transform: scaleX(-1); /* 거울 모드 */
         }
         #controls {
@@ -572,7 +606,7 @@ if idx < len(questions):
         }
         </script>
         """,
-        height=450, # 높이 조정 (너무 크면 레이아웃 깨짐)
+        height=700, # 높이 조정 (너무 크면 레이아웃 깨짐)
         scrolling=False
         )
 

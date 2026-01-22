@@ -3,6 +3,7 @@
 이 프로젝트는 Python 3.11 환경에서 동작하며, `Whisper`, `Mediapipe`, `Librosa`, `MoviePy` 등을 사용합니다.
 팀원 간 환경 충돌(DLL 오류, 버전 호환성 등)을 방지하기 위해 **반드시 아래 가이드에 따라 설치**해 주세요.
 
+
 ## 📋 프로젝트 구조
 
 - **백엔드**: FastAPI (Python) - `main.py`
@@ -62,4 +63,23 @@ conda env update -f environment.yml --prune
 - .vscode/ (개인 설정)
 - __pycache__/
 - 대용량 미디어 파일(.mp4, .mp3 등)
+
+
+<br />
+<br />
+
+## Third-party Notice (Wav2Lip)
+
+본 프로젝트는 **Wav2Lip** 오픈소스 저장소를 사용합니다.  
+Wav2Lip은 원저작자가 명시한 조건에 따라 **개인/연구/비상업적 목적**으로만 사용 가능합니다.  
+상업적 사용이 필요한 경우, 아래로 별도 문의해 주세요.  
+- rudrabha@synclabs.so / prajwal@synclabs.so
+
+### Citation
+Wav2Lip을 참고/사용한 경우 아래 논문을 인용해 주세요.  
+- Prajwal, K. R. et al., *A Lip Sync Expert Is All You Need for Speech to Lip Generation In the Wild*, ACM MM 2020  
+  (BibTeX는 upstream 저장소에 포함)
+
+Upstream: Wav2Lip (Rudrabha Mukhopadhyay, Prajwal K R)
+
 
