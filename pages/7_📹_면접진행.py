@@ -107,10 +107,23 @@ if st.session_state.interview_session_id is None:
                 json={"job_role": "Backend Developer", "company_name": "Tech Corp"},
                 headers=headers
             )
-            if response.status_code == 201:
+            if response.status_code == (200, 201):
                 data = response.json()
+
+                # ① 세션 ID 저장
                 st.session_state.interview_session_id = data['session_id']
-                st.session_state.questions = data['questions']
+
+                # ② 질문 목록 별도 조회
+                q_res = requests.get(
+                    f"{API_BASE}/api/v1/question/session/{data['session_id']}",
+                    headers=headers
+                )
+
+                if q_res.status_code != 200:
+                    st.error("질문 생성 실패")
+                    st.stop()
+
+                st.session_state.questions = q_res.json()
                 st.session_state.current_question_idx = 0
                 st.rerun()
             else:
