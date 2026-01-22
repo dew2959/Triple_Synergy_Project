@@ -131,64 +131,176 @@ if st.session_state.interview_session_id is None:
         components.html(
         """
         <style>
-        #container {
-        position: relative;
-        width: 100%;
-        max-width: 640px;
-        }
-
-        video, canvas {
-        width: 100%;
-        height: auto;
-        }
-
-        canvas {
-        position: absolute;
-        top: 0;
-        left: 0;
-        pointer-events: none;
-        }
+            #container {
+                position: relative;
+                width: 100%;
+                max-width: 640px;
+                margin: 0 auto;
+            }
+            video {
+                width: 100%;
+                height: auto;
+                transform: scaleX(-1); /* 거울 모드 */
+                border-radius: 10px;
+            }
+            canvas {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                pointer-events: none;
+                transform: scaleX(-1); /* 캔버스도 거울 모드 */
+            }
+            #status {
+                position: absolute;
+                bottom: 10px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: rgba(0,0,0,0.6);
+                color: white;
+                padding: 5px 10px;
+                border-radius: 5px;
+                font-family: sans-serif;
+                font-size: 14px;
+                display: none; /* JS 로딩 전엔 숨김 */
+            }
         </style>
 
         <div id="container">
-        <video id="video" autoplay muted playsinline></video>
-        <canvas id="overlay"></canvas>
+            <video id="video" autoplay muted playsinline></video>
+            <canvas id="overlay"></canvas>
+            <div id="status">AI 모델 로딩 중...</div>
         </div>
 
-        <script>
-        const video = document.getElementById("video");
-        const canvas = document.getElementById("overlay");
-        const ctx = canvas.getContext("2d");
+        <script type="module">
+            import {
+                FaceDetector,
+                FilesetResolver
+            } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/+esm";
 
-        navigator.mediaDevices.getUserMedia({ video: true })
-        .then(stream => {
-            video.srcObject = stream;
-        });
+            const video = document.getElementById("video");
+            const canvas = document.getElementById("overlay");
+            const ctx = canvas.getContext("2d");
+            const statusDiv = document.getElementById("status");
+            
+            let faceDetector;
+            let runningMode = "VIDEO";
+            let lastVideoTime = -1;
 
-        video.addEventListener("loadedmetadata", () => {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        drawGuide();
-        });
+            // 1. MediaPipe FaceDetector 초기화
+            async function initializeFaceDetector() {
+                const vision = await FilesetResolver.forVisionTasks(
+                    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
+                );
+                
+                faceDetector = await FaceDetector.createFromOptions(vision, {
+                    baseOptions: {
+                        modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite`,
+                        delegate: "GPU"
+                    },
+                    runningMode: runningMode
+                });
+                
+                statusDiv.style.display = "block";
+                statusDiv.innerText = "카메라 준비 중...";
+                startCamera();
+            }
 
-        function drawGuide() {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+            // 2. 웹캠 시작
+            function startCamera() {
+                navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } })
+                .then(stream => {
+                    video.srcObject = stream;
+                    video.addEventListener("loadeddata", predictWebcam);
+                    statusDiv.innerText = "얼굴을 원 안에 맞춰주세요.";
+                })
+                .catch(err => {
+                    statusDiv.innerText = "카메라 권한이 필요합니다.";
+                    console.error(err);
+                });
+            }
 
-        const centerX = canvas.width / 2;
-        const centerY = canvas.height * 0.4; // 중앙보다 위
-        const radius = canvas.width * 0.2;   // 얼굴 크기
+            // 3. 실시간 감지 및 그리기 루프
+            async function predictWebcam() {
+                // 캔버스 크기를 비디오 실제 크기에 맞춤
+                if (video.videoWidth > 0 && canvas.width !== video.videoWidth) {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                }
 
-        ctx.strokeStyle = "lime";
-        ctx.lineWidth = 4;
-        ctx.beginPath();
-        ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-        ctx.stroke();
+                let startTimeMs = performance.now();
 
-        requestAnimationFrame(drawGuide);
-        }
+                // 비디오 프레임이 변했을 때만 감지 수행
+                if (video.currentTime !== lastVideoTime) {
+                    lastVideoTime = video.currentTime;
+                    
+                    if (faceDetector) {
+                        const detections = faceDetector.detectForVideo(video, startTimeMs).detections;
+                        drawGuideAndFace(detections);
+                    }
+                }
+
+                window.requestAnimationFrame(predictWebcam);
+            }
+
+            // 4. 그리기 로직 (원 그리기 + 판정)
+            function drawGuideAndFace(detections) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                // 가이드 원 설정
+                const centerX = canvas.width / 2;
+                const centerY = canvas.height * 0.45; // 화면 약간 상단
+                const radius = canvas.width * 0.18;   // 원 크기
+
+                let isInside = false;
+
+                // 얼굴이 감지되었는지 확인
+                if (detections && detections.length > 0) {
+                    const face = detections[0].boundingBox;
+                    
+                    // 얼굴 중심점 계산
+                    const faceX = face.originX + (face.width / 2);
+                    const faceY = face.originY + (face.height / 2);
+
+                    // 원의 중심과 얼굴 중심 사이의 거리 계산 (피타고라스)
+                    const distance = Math.sqrt(
+                        Math.pow(faceX - centerX, 2) + Math.pow(faceY - centerY, 2)
+                    );
+
+                    // 판정: 거리가 허용 오차(예: 반지름의 40%) 이내인지
+                    // 즉, 얼굴이 원의 중심에 가깝게 들어왔는지 확인
+                    if (distance < radius * 0.5) {
+                        isInside = true;
+                    }
+                }
+
+                // 색상 결정 (안에 있으면 초록, 아니면 빨강)
+                const color = isInside ? "#00FF00" : "#FF0000"; // Lime Green or Red
+                const lineWidth = isInside ? 6 : 4;
+
+                // 원 그리기
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+                ctx.lineWidth = lineWidth;
+                ctx.strokeStyle = color;
+                ctx.stroke();
+                
+                // (선택사항) 상태 텍스트 업데이트
+                if (isInside) {
+                    statusDiv.innerText = "위치가 적절합니다! ✅";
+                    statusDiv.style.color = "#00FF00";
+                } else {
+                    statusDiv.innerText = "얼굴을 원 안으로 이동해주세요 🟥";
+                    statusDiv.style.color = "#FFcccc";
+                }
+            }
+
+            // 시작
+            initializeFaceDetector();
         </script>
         """,
-        height=520
+        height=550 # 비디오 비율에 맞춰 넉넉하게
         )
 
     # ---------------------------------------------------------
