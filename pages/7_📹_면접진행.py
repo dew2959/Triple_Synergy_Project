@@ -1,8 +1,11 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import requests
 import time
 import cv2
 import numpy as np
+
+import base64
 
 # -----------------------------
 # 1. 로그인 및 세션 체크
@@ -125,16 +128,68 @@ if st.session_state.interview_session_id is None:
 
     # 카메라 테스트 (공간 차지하므로 접을 수 있게)
     with st.expander("📷 카메라 테스트 열기", expanded=False):
-        camera_test = st.camera_input("카메라 작동 확인")
-        if camera_test and face_cascade:
-            # 얼굴 인식 가이드 오버레이 (테스트용)
-            bytes_data = camera_test.getvalue()
-            img = cv2.imdecode(np.frombuffer(bytes_data, np.uint8), cv2.IMREAD_COLOR)
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            faces = face_cascade.detectMultiScale(gray, 1.1, 4)
-            for (x, y, w, h) in faces:
-                cv2.rectangle(img, (x, y), (x+w, y+h), (255, 0, 0), 2)
-            st.image(cv2.cvtColor(img, cv2.COLOR_BGR2RGB), caption="얼굴 인식 테스트")
+        components.html(
+        """
+        <style>
+        #container {
+        position: relative;
+        width: 100%;
+        max-width: 640px;
+        }
+
+        video, canvas {
+        width: 100%;
+        height: auto;
+        }
+
+        canvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+        pointer-events: none;
+        }
+        </style>
+
+        <div id="container">
+        <video id="video" autoplay muted playsinline></video>
+        <canvas id="overlay"></canvas>
+        </div>
+
+        <script>
+        const video = document.getElementById("video");
+        const canvas = document.getElementById("overlay");
+        const ctx = canvas.getContext("2d");
+
+        navigator.mediaDevices.getUserMedia({ video: true })
+        .then(stream => {
+            video.srcObject = stream;
+        });
+
+        video.addEventListener("loadedmetadata", () => {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        drawGuide();
+        });
+
+        function drawGuide() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height * 0.4; // 중앙보다 위
+        const radius = canvas.width * 0.2;   // 얼굴 크기
+
+        ctx.strokeStyle = "lime";
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+        ctx.stroke();
+
+        requestAnimationFrame(drawGuide);
+        }
+        </script>
+        """,
+        height=520
+        )
 
     # ---------------------------------------------------------
     # (4) 면접 시작 버튼
@@ -204,104 +259,139 @@ if idx < len(questions):
     # ---------------------------------------------------------
     col_ai, col_user = st.columns([1, 1], gap="medium")
 
-    # [왼쪽] AI 면접관 영역
-    with col_ai:
-        st.markdown("### 👩‍💼 AI 면접관")
-        
-        # 1. 면접관 이미지 (무료 스톡 이미지 예시)
-        # 실제로는 로컬 파일(assets/interviewer.png)을 쓰거나 다른 URL로 교체 가능
-        interviewer_img = "https://cdn.pixabay.com/photo/2021/05/04/13/29/portrait-6228705_1280.jpg"
-        st.image(interviewer_img, caption="AI 면접관", use_container_width=True)
+    if "recorded_video" not in st.session_state:
+        st.session_state.recorded_video = None
 
-        # 2. TTS 음성 생성 및 재생 로직
-        # (세션 상태를 활용해 질문당 1번만 API 호출하도록 처리)
-        tts_key = f"tts_audio_{current_q['question_id']}"
-        
-        if tts_key not in st.session_state:
-            with st.spinner("면접관이 질문을 준비 중입니다..."):
-                try:
-                    # 백엔드 TTS API 호출
-                    tts_res = requests.post(
-                        f"{API_BASE}/api/v1/interview/tts",
-                        headers=headers,
-                        json={
-                            "text": current_q['content'],
-                            "voice": "nova"  # 목소리 톤 (alloy, echo, fable, onyx, nova, shimmer)
-                        },
-                        timeout=10
-                    )
-                    if tts_res.status_code == 200:
-                        st.session_state[tts_key] = tts_res.content
-                    else:
-                        st.warning("음성 데이터를 불러오지 못했습니다.")
-                except Exception as e:
-                    # TTS 실패해도 면접은 진행되어야 하므로 에러만 찍고 넘어감
-                    print(f"TTS Error: {e}")
+    st.markdown("### 🎙️ 답변 녹화")
 
-        # 3. 질문 텍스트 및 오디오 재생
-        st.info(f"🗣️ **Q{idx+1}.** {current_q['content']}")
-        
-        # 오디오 데이터가 있으면 재생 (autoplay=True)
-        if tts_key in st.session_state:
-            st.audio(st.session_state[tts_key], format="audio/mp3", autoplay=True)
-        
-        st.caption(f"유형: {current_q['category']}")
+    components.html(
+    """
+    <video id="preview" autoplay muted playsinline
+        style="width:100%; border-radius:12px;"></video>
+
+    <div style="margin-top:8px; font-size:18px;">
+    ⏱ <span id="timer">00:00</span> / 02:00
+    </div>
+
+    <div id="warning" style="color:red; font-weight:bold; margin-top:6px;"></div>
+
+    <input type="hidden" id="videoData" />
+
+    <div style="margin-top:10px;">
+    <button onclick="startRecording()">▶ 녹화 시작</button>
+    <button onclick="stopRecording()">■ 녹화 종료</button>
+    </div>
+
+    <script>
+    let mediaRecorder;
+    let recordedChunks = [];
+    let timerInterval;
+    let elapsed = 0;
+
+    const MAX_TIME = 120;   // 최대 120초
+    const WARNING_TIME = 105; // 15초 남았을 때
+
+    function formatTime(sec) {
+    const m = String(Math.floor(sec / 60)).padStart(2, "0");
+    const s = String(sec % 60).padStart(2, "0");
+    return `${m}:${s}`;
+    }
+
+    async function startRecording() {
+    elapsed = 0;
+    recordedChunks = [];
+    document.getElementById("warning").innerText = "";
+    document.getElementById("timer").innerText = "00:00";
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true
+    });
+    document.getElementById("preview").srcObject = stream;
+
+    mediaRecorder = new MediaRecorder(stream);
+
+    mediaRecorder.ondataavailable = e => {
+        if (e.data.size > 0) recordedChunks.push(e.data);
+    };
+
+    mediaRecorder.start();
+
+    timerInterval = setInterval(() => {
+        elapsed++;
+        document.getElementById("timer").innerText = formatTime(elapsed);
+
+        if (elapsed === WARNING_TIME) {
+        document.getElementById("warning").innerText = "⚠️ 15초 남았습니다!";
+        }
+
+        if (elapsed >= MAX_TIME) {
+        stopRecording();
+        }
+    }, 1000);
+    }
+
+    function stopRecording() {
+    if (!mediaRecorder || mediaRecorder.state === "inactive") return;
+
+    clearInterval(timerInterval);
+    mediaRecorder.stop();
+
+    mediaRecorder.onstop = () => {
+        const blob = new Blob(recordedChunks, { type: "video/webm" });
+        const reader = new FileReader();
+
+        reader.onloadend = () => {
+        const base64data = reader.result.split(",")[1];
+        document.getElementById("videoData").value = base64data;
+
+        window.parent.postMessage({
+            type: "streamlit:setComponentValue",
+            value: base64data
+        }, "*");
+        };
+        reader.readAsDataURL(blob);
+    };
+    }
+    </script>
+    """,
+    height=480
+    )
 
 
-    # [오른쪽] 지원자(나) 영역
-    with col_user:
-        st.markdown("### 🧑‍💻 지원자 (나)")
+    # JS에서 전달된 video base64 받기
+    if st.session_state.get("component_value"):
+        st.session_state.recorded_video = st.session_state.component_value
 
-        # 1. 카메라 입력
-        video_file = st.camera_input(
-            f"Q{idx+1} 답변 촬영", 
-            key=f"cam_{idx}", 
-            label_visibility="collapsed" # 라벨 숨김 (깔끔하게)
-        )
-        
-        # 2. 얼굴 가이드 (선택 사항)
-        # (카메라가 켜졌을 때만 작동)
-        if video_file is not None and face_cascade is not None:
-             # 사용자 경험을 위해 매 프레임 분석은 Streamlit에서 느릴 수 있어 생략하거나
-             # 필요시 여기에 cv2 로직 추가
-             pass
+    #업로드 버튼 
+    if st.session_state.get("recorded_video"):
+        video_bytes = base64.b64decode(st.session_state.recorded_video)
 
-        # 3. 제출 버튼
-        if video_file:
-            st.success("영상 기록 완료! 제출 버튼을 눌러주세요.")
-            
-            if st.button(f"📤 답변 제출 (Q{idx+1})", use_container_width=True, type="primary"):
-                with st.status("🚀 답변을 전송하고 AI 분석을 요청합니다...", expanded=True) as status:
-                    try:
-                        # 파일 포인터 리셋
-                        video_file.seek(0)
-                        files = {"file": (video_file.name, video_file.getvalue(), video_file.type)}
-                        data = {"question_id": str(current_q['question_id'])}
+        if st.button("📤 답변 제출", type="primary", use_container_width=True):
+            with st.status("🚀 답변 업로드 중...", expanded=True):
+                files = {
+                    "file": ("answer.webm", video_bytes, "video/webm")
+                }
+                data = {
+                    "question_id": str(current_q["question_id"])
+                }
 
-                        # 업로드 요청
-                        res = requests.post(
-                            f"{API_BASE}/api/v1/interview/upload",
-                            headers=headers,
-                            files=files,
-                            data=data
-                        )
-                        
-                        if res.status_code in (200, 201):
-                            status.update(label="✅ 제출 성공!", state="complete")
-                            st.toast("답변이 기록되었습니다.", icon="✅")
-                            time.sleep(1)
-                            
-                            # 다음 질문으로 이동
-                            st.session_state.current_question_idx += 1
-                            st.rerun()
-                        else:
-                            status.update(label="❌ 제출 실패", state="error")
-                            res_json = res.json()
-                            display_analysis_failure(res_json.get('answer_id', 'Unknown'), res_json.get('message', res.text))
-                            
-                    except Exception as e:
-                        status.update(label="⚠️ 전송 오류", state="error")
-                        st.error(f"에러 발생: {e}")
+                res = requests.post(
+                    f"{API_BASE}/api/v1/interview/upload",
+                    headers=headers,
+                    files=files,
+                    data=data
+                )
+
+                if res.status_code in (200, 201):
+                    st.success("✅ 업로드 완료")
+                    st.session_state.recorded_video = None
+                    st.session_state.current_question_idx += 1
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error("❌ 업로드 실패")
+
 
 else:
     # -----------------------------
