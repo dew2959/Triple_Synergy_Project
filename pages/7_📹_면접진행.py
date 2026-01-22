@@ -350,7 +350,6 @@ if st.session_state.interview_session_id is None:
 
     st.stop() # 면접 시작 전에는 아래 코드를 실행하지 않음
 
-
 # ==============================================================================
 # 5. [면접 진행] 질문 표시, AI 면접관(TTS), 답변 녹화
 # ==============================================================================
@@ -360,7 +359,9 @@ idx = st.session_state.current_question_idx
 if idx < len(questions):
     current_q = questions[idx]
     
-    # 상단 진행률 바
+    # ---------------------------------------------------------
+    # 🎯 화면 상단: 진행률 및 질문 정보
+    # ---------------------------------------------------------
     progress = (idx) / len(questions)
     st.progress(progress, text=f"진행률 {idx + 1}/{len(questions)}")
     
@@ -371,192 +372,296 @@ if idx < len(questions):
     # ---------------------------------------------------------
     col_ai, col_user = st.columns([1, 1], gap="medium")
 
-    if "recorded_video" not in st.session_state:
-        st.session_state.recorded_video = None
+    # ==========================
+    # [왼쪽] AI 면접관 영역
+    # ==========================
+    with col_ai:
+        st.markdown("### 👩‍💼 AI 면접관")
+        
+        # 1. 면접관 이미지
+        interviewer_img = "https://cdn.pixabay.com/photo/2021/05/04/13/29/portrait-6228705_1280.jpg"
+        st.image(interviewer_img, caption="AI 면접관", use_container_width=True)
 
-    st.markdown("### 🎙️ 답변 녹화")
+        # 2. TTS 음성 생성 및 재생 로직
+        tts_key = f"tts_audio_{current_q['question_id']}"
+        
+        if tts_key not in st.session_state:
+            with st.spinner("면접관이 질문을 읽어주는 중입니다..."):
+                try:
+                    # 백엔드 TTS API 호출
+                    tts_res = requests.post(
+                        f"{API_BASE}/api/v1/interview/tts",
+                        headers=headers,
+                        json={
+                            "text": current_q['content'],
+                            "voice": "nova"  # 목소리 톤
+                        },
+                        timeout=10
+                    )
+                    if tts_res.status_code == 200:
+                        st.session_state[tts_key] = tts_res.content
+                    else:
+                        st.warning("음성 데이터를 불러오지 못했습니다.")
+                except Exception as e:
+                    print(f"TTS Error: {e}")
 
-    video_base64 = components.html(
-    """
-    <style>
-    #video-wrapper {
-    position: relative;
-    width: 100%;
-    }
+        # 3. 질문 텍스트 및 오디오 재생
+        st.info(f"🗣️ **Q{idx+1}.** {current_q['content']}")
+        
+        if tts_key in st.session_state:
+            st.audio(st.session_state[tts_key], format="audio/mp3", autoplay=True)
+        
+        st.caption(f"유형: {current_q['category']}")
 
-    #preview {
-    width: 100%;
-    border-radius: 12px;
-    z-index: 1;
-    }
 
-    #controls {
-    position: relative;
-    z-index: 10; /* 🔥 핵심 */
-    margin-top: 12px;
-    }
+    # ==========================
+    # [오른쪽] 지원자(나) 녹화 영역
+    # ==========================
+    with col_user:
+        st.markdown("### 🎙️ 답변 녹화")
 
-    button {
-    font-size: 16px;
-    padding: 8px 14px;
-    }
-    </style>
+        if "recorded_video" not in st.session_state:
+            st.session_state.recorded_video = None
 
-    <div id="video-wrapper">
-    <video id="preview" autoplay muted playsinline></video>
-    </div>
+        # 커스텀 JS 녹화 컴포넌트
+        video_base64 = components.html(
+        """
+        <style>
+        body { margin: 0; padding: 0; overflow: hidden; }
+        #video-wrapper {
+            position: relative;
+            width: 100%;
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        video {
+            width: 100%;
+            height: auto;
+            display: block;
+            transform: scaleX(-1); /* 거울 모드 */
+        }
+        #controls {
+            margin-top: 10px;
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+        }
+        button {
+            font-size: 14px;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            color: white;
+        }
+        #startBtn { background-color: #28a745; }
+        #startBtn:disabled { background-color: #ccc; cursor: not-allowed; }
+        #stopBtn { background-color: #dc3545; }
+        #stopBtn:disabled { background-color: #ccc; cursor: not-allowed; }
+        
+        .timer-box {
+            text-align: center;
+            font-size: 18px;
+            font-family: monospace;
+            margin-top: 5px;
+            color: #333;
+        }
+        #warning { color: red; font-weight: bold; font-size: 14px; height: 20px; text-align: center; }
+        </style>
 
-    <div style="margin-top:8px; font-size:18px;">
-    ⏱ <span id="timer">00:00</span> / 02:00
-    </div>
+        <div id="video-wrapper">
+            <video id="preview" autoplay muted playsinline></video>
+        </div>
 
-    <div id="warning" style="color:red; font-weight:bold; margin-top:6px;"></div>
+        <div class="timer-box">
+            ⏱ <span id="timer">00:00</span> / 02:00
+        </div>
+        <div id="warning"></div>
 
-    <div id="controls">
-    <button id="startBtn" onclick="startRecording()">▶ 답변 시작</button>
-    <button id="stopBtn" onclick="stopRecording()" disabled>■ 답변 종료</button>
-    </div>
+        <div id="controls">
+            <button id="startBtn" onclick="startRecording()">▶ 녹화 시작</button>
+            <button id="stopBtn" onclick="stopRecording()" disabled>■ 녹화 종료</button>
+        </div>
 
-    <script>
-    let mediaRecorder;
-    let recordedChunks = [];
-    let timerInterval;
-    let elapsed = 0;
-    let stream;
+        <script>
+        let mediaRecorder;
+        let recordedChunks = [];
+        let timerInterval;
+        let elapsed = 0;
+        let stream;
 
-    const MAX_TIME = 120;
-    const WARNING_TIME = 105;
+        const MAX_TIME = 120;
+        const WARNING_TIME = 105;
 
-    // 카메라 항상 켜기
-    navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-    .then(s => {
-    stream = s;
-    document.getElementById("preview").srcObject = stream;
-    });
+        // 카메라 권한 요청 및 미리보기 시작
+        navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+        .then(s => {
+            stream = s;
+            document.getElementById("preview").srcObject = stream;
+        })
+        .catch(err => {
+            document.getElementById("warning").innerText = "카메라/마이크 권한이 필요합니다.";
+        });
 
-    function formatTime(sec) {
-    const m = String(Math.floor(sec / 60)).padStart(2, "0");
-    const s = String(sec % 60).padStart(2, "0");
-    return `${m}:${s}`;
-    }
-
-    function startRecording() {
-    document.getElementById("startBtn").disabled = true;
-    document.getElementById("stopBtn").disabled = false;
-
-    elapsed = 0;
-    recordedChunks = [];
-    document.getElementById("timer").innerText = "00:00";
-    document.getElementById("warning").innerText = "";
-
-    mediaRecorder = new MediaRecorder(stream);
-
-    mediaRecorder.ondataavailable = e => {
-        if (e.data.size > 0) recordedChunks.push(e.data);
-    };
-
-    mediaRecorder.start();
-
-    timerInterval = setInterval(() => {
-        elapsed++;
-        document.getElementById("timer").innerText = formatTime(elapsed);
-
-        if (elapsed === WARNING_TIME) {
-        document.getElementById("warning").innerText = "⚠️ 15초 남았습니다!";
+        function formatTime(sec) {
+            const m = String(Math.floor(sec / 60)).padStart(2, "0");
+            const s = String(sec % 60).padStart(2, "0");
+            return `${m}:${s}`;
         }
 
-        if (elapsed >= MAX_TIME) {
-        stopRecording();
+        function startRecording() {
+            if (!stream) return;
+            
+            document.getElementById("startBtn").disabled = true;
+            document.getElementById("stopBtn").disabled = false;
+
+            elapsed = 0;
+            recordedChunks = [];
+            document.getElementById("timer").innerText = "00:00";
+            document.getElementById("warning").innerText = "";
+
+            mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+
+            mediaRecorder.ondataavailable = e => {
+                if (e.data.size > 0) recordedChunks.push(e.data);
+            };
+
+            mediaRecorder.start();
+
+            timerInterval = setInterval(() => {
+                elapsed++;
+                document.getElementById("timer").innerText = formatTime(elapsed);
+
+                if (elapsed === WARNING_TIME) {
+                    document.getElementById("warning").innerText = "⚠️ 15초 남았습니다!";
+                }
+
+                if (elapsed >= MAX_TIME) {
+                    stopRecording();
+                }
+            }, 1000);
         }
-    }, 1000);
-    }
 
-    function stopRecording() {
-    document.getElementById("stopBtn").disabled = true;
+        function stopRecording() {
+            document.getElementById("stopBtn").disabled = true;
 
-    if (!mediaRecorder || mediaRecorder.state === "inactive") return;
+            if (!mediaRecorder || mediaRecorder.state === "inactive") return;
 
-    clearInterval(timerInterval);
-    mediaRecorder.stop();
+            clearInterval(timerInterval);
+            mediaRecorder.stop();
 
-    mediaRecorder.onstop = () => {
-        document.getElementById("startBtn").disabled = false;
+            mediaRecorder.onstop = () => {
+                document.getElementById("startBtn").disabled = false;
 
-        const blob = new Blob(recordedChunks, { type: "video/webm" });
-        const reader = new FileReader();
+                const blob = new Blob(recordedChunks, { type: "video/webm" });
+                const reader = new FileReader();
 
-        reader.onloadend = () => {
-        const base64data = reader.result.split(",")[1];
-        window.parent.postMessage({
-            type: "streamlit:setComponentValue",
-            value: base64data
-        }, "*");
-        };
+                reader.onloadend = () => {
+                    // base64 문자열만 추출하여 Streamlit으로 전송
+                    const base64data = reader.result.split(",")[1];
+                    window.parent.postMessage({
+                        type: "streamlit:setComponentValue",
+                        value: base64data
+                    }, "*");
+                };
 
-        reader.readAsDataURL(blob);
-    };
-    }
-    </script>
-    """,
-    height=1000,
-    scrolling=True
-    )
+                reader.readAsDataURL(blob);
+            };
+        }
+        </script>
+        """,
+        height=450, # 높이 조정 (너무 크면 레이아웃 깨짐)
+        scrolling=False
+        )
+
+        # JS에서 값이 넘어오면 세션에 저장
+        if video_base64:
+            st.session_state.recorded_video = video_base64
+            st.success("✅ 녹화가 완료되었습니다. 아래 버튼을 눌러 제출하세요.")
 
 
-    if video_base64:
-        st.session_state.recorded_video = video_base64
-
-
-    #업로드 버튼 
+    # ==========================
+    # [하단] 제출 및 이동 버튼
+    # ==========================
+    # 녹화된 영상이 있을 때만 버튼 활성화
     if st.session_state.get("recorded_video"):
-        # 5번째 질문 이전
-        if idx < 4:
-            if st.button("➡ 다음 질문", type="primary", use_container_width=True):
+        st.divider()
+        
+        # [A] 중간 질문 (1~4번) -> "다음 질문" 버튼
+        if idx < 4:  # 0,1,2,3 (총 4개) -> idx < 4 이면 5번째(idx=4) 질문이 남음
+            if st.button("➡ 제출하고 다음 질문으로 이동", type="primary", use_container_width=True):
+                with st.spinner("답변을 업로드 중입니다..."):
+                    try:
+                        video_bytes = base64.b64decode(st.session_state.recorded_video)
+                        files = {"file": ("answer.webm", video_bytes, "video/webm")}
+                        data = {"question_id": str(current_q["question_id"])}
 
-                video_bytes = base64.b64decode(st.session_state.recorded_video)
+                        res = requests.post(
+                            f"{API_BASE}/api/v1/interview/upload",
+                            headers=headers,
+                            files=files,
+                            data=data
+                        )
 
-                files = {
-                    "file": ("answer.webm", video_bytes, "video/webm")
-                }
-                data = {
-                    "question_id": str(current_q["question_id"])
-                }
+                        if res.status_code in (200, 201):
+                            # 성공 시 상태 초기화 후 이동
+                            st.session_state.recorded_video = None
+                            st.session_state.current_question_idx += 1
+                            st.toast("답변이 저장되었습니다.", icon="💾")
+                            time.sleep(0.5)
+                            st.rerun()
+                        else:
+                            st.error(f"업로드 실패: {res.text}")
+                    except Exception as e:
+                        st.error(f"오류 발생: {e}")
 
-                res = requests.post(
-                    f"{API_BASE}/api/v1/interview/upload",
-                    headers=headers,
-                    files=files,
-                    data=data
-                )
-
-                if res.status_code in (200, 201):
-                    st.session_state.recorded_video = None
-                    st.session_state.current_question_idx += 1
-                    st.rerun()
-                else:
-                    st.error("❌ 업로드 실패")
-
-        # 5번째 질문 (마지막)
+        # [B] 마지막 질문 (5번) -> "종료 및 분석" 버튼
         else:
-            if st.button("🧠 모의면접 종료 및 분석 시작", type="primary", use_container_width=True):
+            if st.button("🏁 면접 종료 및 결과 분석 시작", type="primary", use_container_width=True):
+                with st.status("마지막 답변을 저장하고 분석을 시작합니다...", expanded=True) as status:
+                    try:
+                        # 1. 마지막 영상 업로드
+                        video_bytes = base64.b64decode(st.session_state.recorded_video)
+                        files = {"file": ("answer.webm", video_bytes, "video/webm")}
+                        data = {"question_id": str(current_q["question_id"])}
 
-                video_bytes = base64.b64decode(st.session_state.recorded_video)
+                        res = requests.post(
+                            f"{API_BASE}/api/v1/interview/upload",
+                            headers=headers,
+                            files=files,
+                            data=data
+                        )
+                        
+                        if res.status_code not in (200, 201):
+                            status.update(label="❌ 마지막 영상 업로드 실패", state="error")
+                            st.error(res.text)
+                            st.stop()
+                        
+                        status.write("✅ 답변 저장 완료")
 
-                files = {
-                    "file": ("answer.webm", video_bytes, "video/webm")
-                }
-                data = {
-                    "question_id": str(current_q["question_id"])
-                }
+                        # 2. 분석 요청 (세션 단위)
+                        # 세션 ID가 필요하므로 session_state나 current_q에서 가져옴
+                        session_id = st.session_state.interview_session_id
+                        
+                        analyze_res = requests.post(
+                            f"{API_BASE}/api/v1/analysis/session/{session_id}",
+                            headers=headers,
+                            timeout=10 # 트리거만 하므로 짧게
+                        )
+                        
+                        if analyze_res.status_code == 200:
+                            status.update(label="🚀 분석 시작됨!", state="complete")
+                            time.sleep(1)
+                            st.switch_page("pages/6_📊_리포트.py")
+                        else:
+                            status.update(label="⚠️ 분석 요청 실패", state="error")
+                            st.error(analyze_res.text)
+                            
+                    except Exception as e:
+                        st.error(f"오류: {e}")
 
-                requests.post(
-                    f"{API_BASE}/api/v1/interview/upload",
-                    headers=headers,
-                    files=files,
-                    data=data
-                )
-
-                st.switch_page("pages/6_📊_리포트.py")
 
 else:
     # -----------------------------
