@@ -33,3 +33,14 @@ uploads/*
 
 # MediaPipe model files
 app/engines/visual/models/*.task
+
+# --- Wav2Lip (do not commit third-party code & weights) ---
+third_party/Wav2Lip/
+third_party/Wav2Lip/**
+
+# (혹시 폴더는 남기고 싶다면 아래처럼 placeholder만 커밋)
+!third_party/.gitkeep
+
+# weights (안전빵)
+third_party/Wav2Lip/checkpoints/*.pth
+third_party/Wav2Lip/face_detection/**/s3fd.pth
