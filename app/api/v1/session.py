@@ -30,7 +30,7 @@ def create_interview_session(
     """
     [면접 세션 생성]
     1. resume_id를 보낸 경우 -> 그 이력서 사용
-    2. resume_id를 안 보낸 경우 -> 내 가장 최신 이력서 사용
+    2. resume_id를 안 보낸 경우 -> 내 가장 최신 이력서사용
     """
     user_id = current_user['user_id']
     resume_target = None
