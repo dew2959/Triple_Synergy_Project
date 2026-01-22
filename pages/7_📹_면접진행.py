@@ -240,7 +240,7 @@ if st.session_state.interview_session_id is None:
 
 
 # ==============================================================================
-# 5. [면접 진행] 실시간 녹화 + 업로드 코드
+# 5. [면접 진행] 질문 표시, AI 면접관(TTS), 답변 녹화
 # ==============================================================================
 questions = st.session_state.questions
 idx = st.session_state.current_question_idx
@@ -251,9 +251,13 @@ if idx < len(questions):
     # 상단 진행률 바
     progress = (idx) / len(questions)
     st.progress(progress, text=f"진행률 {idx + 1}/{len(questions)}")
+    
+    st.divider()
 
-    st.subheader(f"Q{idx+1}. {current_q['content']}")
-    st.caption(f"카테고리: {current_q['category']}")
+    # ---------------------------------------------------------
+    # 🎯 화면 2분할 (왼쪽: AI 면접관 / 오른쪽: 내 모습)
+    # ---------------------------------------------------------
+    col_ai, col_user = st.columns([1, 1], gap="medium")
 
     if "recorded_video" not in st.session_state:
         st.session_state.recorded_video = None
