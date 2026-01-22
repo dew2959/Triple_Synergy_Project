@@ -13,3 +13,8 @@ class AnswerResponse(BaseModel):
         
 class RetryAnalysisResponse(BaseModel):
     message: str
+
+
+class TTSRequest(BaseModel):
+    text: str
+    voice: str = "alloy" # alloy, echo, fable, onyx, nova, shimmer 중 선택

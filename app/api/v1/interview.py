@@ -10,6 +10,11 @@ from app.services.analysis_service import analysis_service
 from app.core.db import get_db_connection
 from app.core.config import settings
 
+from fastapi.responses import Response
+from openai import OpenAI
+from app.schemas.interview import TTSRequest
+
+
 router = APIRouter()
 
 # ==============================
@@ -102,3 +107,28 @@ def retry_analysis(
     )
     
     return RetryAnalysisResponse(message=f"Re-analysis started for answer {answer_id}")
+
+
+@router.post("/tts", summary="텍스트를 음성으로 변환")
+def generate_tts(request: TTSRequest):
+    """
+    OpenAI TTS API를 사용하여 텍스트를 오디오(MP3) 바이너리로 반환
+    """
+    if not settings.OPENAI_API_KEY:
+        raise HTTPException(status_code=500, detail="OpenAI API Key missing")
+    
+    client = OpenAI(api_key=settings.OPENAI_API_KEY)
+    
+    try:
+        response = client.audio.speech.create(
+            model="tts-1",       # tts-1: 빠름, tts-1-hd: 고품질
+            voice=request.voice, # 면접관 목소리 선택
+            input=request.text
+        )
+        
+        # 바이너리 데이터를 그대로 반환 (audio/mpeg)
+        return Response(content=response.content, media_type="audio/mpeg")
+        
+    except Exception as e:
+        print(f"TTS Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
