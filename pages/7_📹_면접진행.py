@@ -1,11 +1,8 @@
 import streamlit as st
-import streamlit.components.v1 as components
+from streamlit_webrtc import webrtc_streamer, WebRtcMode
 import requests
 import time
-import cv2
-import numpy as np
-
-import base64
+from app.utils.camera_utils import FaceGuideTransformer
 
 # -----------------------------
 # 1. 로그인 및 세션 체크
@@ -47,20 +44,17 @@ if 'interview_session_id' not in st.session_state:
     st.session_state.interview_session_id = None
 if 'questions' not in st.session_state:
     st.session_state.questions = []
-
-# 얼굴 인식용 Cascade (없어도 동작하도록 예외처리)
-face_cascade = None
-try:
-    face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-except:
-    pass
+if "recorded_video" not in st.session_state:
+    st.session_state.recorded_video = None
+if 'recording_active' not in st.session_state:
+    st.session_state.recording_active = False
 
 
 # ==============================================================================
 # 4. [면접 시작 전] 이력서 선택 및 세션 생성 화면
 # ==============================================================================
 if st.session_state.interview_session_id is None:
-    st.subheader("📌 면접 준비")
+    st.subheader("📌 면접 준비 ")
     
     # ---------------------------------------------------------
     # (1) 이력서 목록 불러오기 (캐싱 적용)
@@ -128,179 +122,13 @@ if st.session_state.interview_session_id is None:
 
     # 카메라 테스트 (공간 차지하므로 접을 수 있게)
     with st.expander("📷 카메라 테스트 열기", expanded=False):
-        components.html(
-        """
-        <style>
-            #container {
-                position: relative;
-                width: 100%;
-                max-width: 640px;
-                margin: 0 auto;
-            }
-            video {
-                width: 100%;
-                height: auto;
-                transform: scaleX(-1); /* 거울 모드 */
-                border-radius: 10px;
-            }
-            canvas {
-                position: absolute;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                pointer-events: none;
-                transform: scaleX(-1); /* 캔버스도 거울 모드 */
-            }
-            #status {
-                position: absolute;
-                bottom: 10px;
-                left: 50%;
-                transform: translateX(-50%);
-                background: rgba(0,0,0,0.6);
-                color: white;
-                padding: 5px 10px;
-                border-radius: 5px;
-                font-family: sans-serif;
-                font-size: 14px;
-                display: none; /* JS 로딩 전엔 숨김 */
-            }
-        </style>
-
-        <div id="container">
-            <video id="video" autoplay muted playsinline></video>
-            <canvas id="overlay"></canvas>
-            <div id="status">AI 모델 로딩 중...</div>
-        </div>
-
-        <script type="module">
-            import {
-                FaceDetector,
-                FilesetResolver
-            } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/+esm";
-
-            const video = document.getElementById("video");
-            const canvas = document.getElementById("overlay");
-            const ctx = canvas.getContext("2d");
-            const statusDiv = document.getElementById("status");
-            
-            let faceDetector;
-            let runningMode = "VIDEO";
-            let lastVideoTime = -1;
-
-            // 1. MediaPipe FaceDetector 초기화
-            async function initializeFaceDetector() {
-                const vision = await FilesetResolver.forVisionTasks(
-                    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
-                );
-                
-                faceDetector = await FaceDetector.createFromOptions(vision, {
-                    baseOptions: {
-                        modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite`,
-                        delegate: "GPU"
-                    },
-                    runningMode: runningMode
-                });
-                
-                statusDiv.style.display = "block";
-                statusDiv.innerText = "카메라 준비 중...";
-                startCamera();
-            }
-
-            // 2. 웹캠 시작
-            function startCamera() {
-                navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } })
-                .then(stream => {
-                    video.srcObject = stream;
-                    video.addEventListener("loadeddata", predictWebcam);
-                    statusDiv.innerText = "얼굴을 원 안에 맞춰주세요.";
-                })
-                .catch(err => {
-                    statusDiv.innerText = "카메라 권한이 필요합니다.";
-                    console.error(err);
-                });
-            }
-
-            // 3. 실시간 감지 및 그리기 루프
-            async function predictWebcam() {
-                // 캔버스 크기를 비디오 실제 크기에 맞춤
-                if (video.videoWidth > 0 && canvas.width !== video.videoWidth) {
-                    canvas.width = video.videoWidth;
-                    canvas.height = video.videoHeight;
-                }
-
-                let startTimeMs = performance.now();
-
-                // 비디오 프레임이 변했을 때만 감지 수행
-                if (video.currentTime !== lastVideoTime) {
-                    lastVideoTime = video.currentTime;
-                    
-                    if (faceDetector) {
-                        const detections = faceDetector.detectForVideo(video, startTimeMs).detections;
-                        drawGuideAndFace(detections);
-                    }
-                }
-
-                window.requestAnimationFrame(predictWebcam);
-            }
-
-            // 4. 그리기 로직 (원 그리기 + 판정)
-            function drawGuideAndFace(detections) {
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-                // 가이드 원 설정
-                const centerX = canvas.width / 2;
-                const centerY = canvas.height * 0.45; // 화면 약간 상단
-                const radius = canvas.width * 0.18;   // 원 크기
-
-                let isInside = false;
-
-                // 얼굴이 감지되었는지 확인
-                if (detections && detections.length > 0) {
-                    const face = detections[0].boundingBox;
-                    
-                    // 얼굴 중심점 계산
-                    const faceX = face.originX + (face.width / 2);
-                    const faceY = face.originY + (face.height / 2);
-
-                    // 원의 중심과 얼굴 중심 사이의 거리 계산 (피타고라스)
-                    const distance = Math.sqrt(
-                        Math.pow(faceX - centerX, 2) + Math.pow(faceY - centerY, 2)
-                    );
-
-                    // 판정: 거리가 허용 오차(예: 반지름의 40%) 이내인지
-                    // 즉, 얼굴이 원의 중심에 가깝게 들어왔는지 확인
-                    if (distance < radius * 0.5) {
-                        isInside = true;
-                    }
-                }
-
-                // 색상 결정 (안에 있으면 초록, 아니면 빨강)
-                const color = isInside ? "#00FF00" : "#FF0000"; // Lime Green or Red
-                const lineWidth = isInside ? 6 : 4;
-
-                // 원 그리기
-                ctx.beginPath();
-                ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
-                ctx.lineWidth = lineWidth;
-                ctx.strokeStyle = color;
-                ctx.stroke();
-                
-                // (선택사항) 상태 텍스트 업데이트
-                if (isInside) {
-                    statusDiv.innerText = "위치가 적절합니다! ✅";
-                    statusDiv.style.color = "#00FF00";
-                } else {
-                    statusDiv.innerText = "얼굴을 원 안으로 이동해주세요 🟥";
-                    statusDiv.style.color = "#FFcccc";
-                }
-            }
-
-            // 시작
-            initializeFaceDetector();
-        </script>
-        """,
-        height=550 # 비디오 비율에 맞춰 넉넉하게
+        st.info("얼굴을 중앙 원 안에 맞추세요. 초록색이면 적절합니다.")
+        webrtc_streamer(
+            key="camera_test",
+            mode=WebRtcMode.SENDRECV,
+            video_processor_factory=FaceGuideTransformer,
+            media_stream_constraints={"video": True, "audio": False},
+            async_processing=True
         )
 
     # ---------------------------------------------------------
@@ -386,7 +214,7 @@ if idx < len(questions):
         tts_key = f"tts_audio_{current_q['question_id']}"
         
         if tts_key not in st.session_state:
-            with st.spinner("면접관이 질문을 읽어주는 중입니다..."):
+            with st.spinner("면접관이 질문을 읽는 중입니다..."):
                 try:
                     # 백엔드 TTS API 호출
                     tts_res = requests.post(
@@ -402,6 +230,7 @@ if idx < len(questions):
                         st.session_state[tts_key] = tts_res.content
                     else:
                         st.warning("음성 데이터를 불러오지 못했습니다.")
+
                 except Exception as e:
                     print(f"TTS Error: {e}")
 
@@ -420,167 +249,65 @@ if idx < len(questions):
     with col_user:
         st.markdown("### 🎙️ 답변 녹화")
 
-        if "recorded_video" not in st.session_state:
-            st.session_state.recorded_video = None
-
-        # 커스텀 JS 녹화 컴포넌트
-        video_base64 = components.html(
-        """
-        <style>
-        body { margin: 0; padding: 0; overflow: hidden; }
-        #video-wrapper {
-            position: relative;
-            width: 100%;
-            background: #000;
-            border-radius: 12px;
-            overflow: hidden;
-        }
-        video {
-            width: 100%;
-            height: auto;
-            display: block;
-            transform: scaleX(-1); /* 거울 모드 */
-        }
-        #controls {
-            margin-top: 10px;
-            display: flex;
-            justify-content: center;
-            gap: 10px;
-        }
-        button {
-            font-size: 14px;
-            padding: 8px 16px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: bold;
-            color: white;
-        }
-        #startBtn { background-color: #28a745; }
-        #startBtn:disabled { background-color: #ccc; cursor: not-allowed; }
-        #stopBtn { background-color: #dc3545; }
-        #stopBtn:disabled { background-color: #ccc; cursor: not-allowed; }
-        
-        .timer-box {
-            text-align: center;
-            font-size: 18px;
-            font-family: monospace;
-            margin-top: 5px;
-            color: #333;
-        }
-        #warning { color: red; font-weight: bold; font-size: 14px; height: 20px; text-align: center; }
-        </style>
-
-        <div id="video-wrapper">
-            <video id="preview" autoplay muted playsinline></video>
-        </div>
-
-        <div class="timer-box">
-            ⏱ <span id="timer">00:00</span> / 02:00
-        </div>
-        <div id="warning"></div>
-
-        <div id="controls">
-            <button id="startBtn" onclick="startRecording()">▶ 녹화 시작</button>
-            <button id="stopBtn" onclick="stopRecording()" disabled>■ 녹화 종료</button>
-        </div>
-
-        <script>
-        let mediaRecorder;
-        let recordedChunks = [];
-        let timerInterval;
-        let elapsed = 0;
-        let stream;
-
-        const MAX_TIME = 120;
-        const WARNING_TIME = 105;
-
-        // 카메라 권한 요청 및 미리보기 시작
-        navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-        .then(s => {
-            stream = s;
-            document.getElementById("preview").srcObject = stream;
-        })
-        .catch(err => {
-            document.getElementById("warning").innerText = "카메라/마이크 권한이 필요합니다.";
-        });
-
-        function formatTime(sec) {
-            const m = String(Math.floor(sec / 60)).padStart(2, "0");
-            const s = String(sec % 60).padStart(2, "0");
-            return `${m}:${s}`;
+        # STUN 서버 설정 정의 
+        rtc_configuration = {
+            "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
         }
 
-        function startRecording() {
-            if (!stream) return;
-            
-            document.getElementById("startBtn").disabled = true;
-            document.getElementById("stopBtn").disabled = false;
-
-            elapsed = 0;
-            recordedChunks = [];
-            document.getElementById("timer").innerText = "00:00";
-            document.getElementById("warning").innerText = "";
-
-            mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
-
-            mediaRecorder.ondataavailable = e => {
-                if (e.data.size > 0) recordedChunks.push(e.data);
-            };
-
-            mediaRecorder.start();
-
-            timerInterval = setInterval(() => {
-                elapsed++;
-                document.getElementById("timer").innerText = formatTime(elapsed);
-
-                if (elapsed === WARNING_TIME) {
-                    document.getElementById("warning").innerText = "⚠️ 15초 남았습니다!";
-                }
-
-                if (elapsed >= MAX_TIME) {
-                    stopRecording();
-                }
-            }, 1000);
-        }
-
-        function stopRecording() {
-            document.getElementById("stopBtn").disabled = true;
-
-            if (!mediaRecorder || mediaRecorder.state === "inactive") return;
-
-            clearInterval(timerInterval);
-            mediaRecorder.stop();
-
-            mediaRecorder.onstop = () => {
-                document.getElementById("startBtn").disabled = false;
-
-                const blob = new Blob(recordedChunks, { type: "video/webm" });
-                const reader = new FileReader();
-
-                reader.onloadend = () => {
-                    // base64 문자열만 추출하여 Streamlit으로 전송
-                    const base64data = reader.result.split(",")[1];
-                    window.parent.postMessage({
-                        type: "streamlit:setComponentValue",
-                        value: base64data
-                    }, "*");
-                };
-
-                reader.readAsDataURL(blob);
-            };
-        }
-        </script>
-        """,
-        height=450, # 높이 조정 (너무 크면 레이아웃 깨짐)
-        scrolling=False
+        # 1. WebRTC 스트리머 설정 (STUN 서버 추가됨)
+        webrtc_ctx = webrtc_streamer(
+            key=f"user_record_{idx}",
+            mode=WebRtcMode.SENDRECV,
+            video_processor_factory=FaceGuideTransformer,  # app/utils/camera_utils.py의 클래스
+            media_stream_constraints={"video": True, "audio": True},
+            rtc_configuration={
+                "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+            },
+            async_processing=True
         )
 
-        # JS에서 값이 넘어오면 세션에 저장
-        if video_base64:
-            st.session_state.recorded_video = video_base64
-            st.success("✅ 녹화가 완료되었습니다. 아래 버튼을 눌러 제출하세요.")
+        # 스트리밍이 실행 중이고 프로세서가 준비되었을 때만 실행
+        if webrtc_ctx.video_processor:
+            # FaceGuideTransformer 클래스 안에 'recording'이라는 속성이 있다고 가정합니다.
+            # 없다면 FaceGuideTransformer 클래스에 self.recording = False 를 추가해야 합니다.
+            webrtc_ctx.video_processor.recording = st.session_state.recording_active
 
+        # ---------------------------
+        # 녹화 상태 UI
+        # ---------------------------
+        if not st.session_state.recording_active:
+            if st.button("⏺️ 답변 녹화 시작", use_container_width=True):
+                st.session_state.recording_active = True
+                st.toast("녹화를 시작합니다", icon="🎥")
+                st.rerun()
+
+        else:
+            st.warning("🔴 녹화 중입니다... 답변이 끝나면 종료 버튼을 누르세요.")
+
+            if st.button("⏹️ 답변 녹화 종료", type="primary", use_container_width=True):
+                # 녹화 종료 시점 처리
+                if webrtc_ctx.video_processor:
+                    # 프로세서 내부의 녹화 종료 및 파일 저장 메소드 호출
+                    # (FaceGuideTransformer 내부에 이 로직이 구현되어 있어야 함)
+                    # 예: video_path = webrtc_ctx.video_processor.stop_recording()
+                    
+                    # 기존 코드 활용
+                    video_path = webrtc_ctx.video_processor.get_recorded_video()
+
+                    if video_path:
+                        st.session_state.recorded_video = video_path
+                        st.session_state.recording_active = False
+                        st.success("✅ 녹화가 완료되었습니다.")
+                        st.rerun()
+                    else:
+                        st.error("녹화된 영상 데이터가 없습니다.")
+                        st.session_state.recording_active = False
+                        st.rerun()
+                else:
+                    st.error("카메라 연결이 끊겨 영상을 저장할 수 없습니다.")
+                    # 상태 강제 초기화
+                    st.session_state.recording_active = False
+                    st.rerun()
 
     # ==========================
     # [하단] 제출 및 이동 버튼
@@ -590,32 +317,34 @@ if idx < len(questions):
         st.divider()
         
         # [A] 중간 질문 (1~4번) -> "다음 질문" 버튼
-        if idx < 4:  # 0,1,2,3 (총 4개) -> idx < 4 이면 5번째(idx=4) 질문이 남음
+        if idx < 4:
             if st.button("➡ 제출하고 다음 질문으로 이동", type="primary", use_container_width=True):
                 with st.spinner("답변을 업로드 중입니다..."):
                     try:
-                        video_bytes = base64.b64decode(st.session_state.recorded_video)
-                        files = {"file": ("answer.webm", video_bytes, "video/webm")}
-                        data = {"question_id": str(current_q["question_id"])}
+                        with open(st.session_state.recorded_video, "rb") as f:
+                            files = {
+                                "file": ("answer.mp4", f, "video/mp4")
+                            }
+                            data = {"question_id": str(current_q["question_id"])}
 
-                        res = requests.post(
-                            f"{API_BASE}/api/v1/interview/upload",
-                            headers=headers,
-                            files=files,
-                            data=data
-                        )
+                            res = requests.post(
+                                f"{API_BASE}/api/v1/interview/upload",
+                                headers=headers,
+                                files=files,
+                                data=data
+                            )
 
                         if res.status_code in (200, 201):
-                            # 성공 시 상태 초기화 후 이동
                             st.session_state.recorded_video = None
                             st.session_state.current_question_idx += 1
                             st.toast("답변이 저장되었습니다.", icon="💾")
                             time.sleep(0.5)
                             st.rerun()
                         else:
-                            st.error(f"업로드 실패: {res.text}")
+                            st.error(res.text)
+
                     except Exception as e:
-                        st.error(f"오류 발생: {e}")
+                        st.error(f"업로드 오류: {e}")
 
         # [B] 마지막 질문 (5번) -> "종료 및 분석" 버튼
         else:
@@ -623,34 +352,35 @@ if idx < len(questions):
                 with st.status("마지막 답변을 저장하고 분석을 시작합니다...", expanded=True) as status:
                     try:
                         # 1. 마지막 영상 업로드
-                        video_bytes = base64.b64decode(st.session_state.recorded_video)
-                        files = {"file": ("answer.webm", video_bytes, "video/webm")}
-                        data = {"question_id": str(current_q["question_id"])}
+                        with open(st.session_state.recorded_video, "rb") as f:
+                            files = {
+                                "file": ("answer.mp4", f, "video/mp4")
+                            }
+                            data = {"question_id": str(current_q["question_id"])}
 
-                        res = requests.post(
-                            f"{API_BASE}/api/v1/interview/upload",
-                            headers=headers,
-                            files=files,
-                            data=data
-                        )
-                        
+                            res = requests.post(
+                                f"{API_BASE}/api/v1/interview/upload",
+                                headers=headers,
+                                files=files,
+                                data=data
+                            )
+
                         if res.status_code not in (200, 201):
                             status.update(label="❌ 마지막 영상 업로드 실패", state="error")
                             st.error(res.text)
                             st.stop()
-                        
+
                         status.write("✅ 답변 저장 완료")
 
                         # 2. 분석 요청 (세션 단위)
-                        # 세션 ID가 필요하므로 session_state나 current_q에서 가져옴
                         session_id = st.session_state.interview_session_id
-                        
+
                         analyze_res = requests.post(
                             f"{API_BASE}/api/v1/analysis/session/{session_id}",
                             headers=headers,
-                            timeout=10 # 트리거만 하므로 짧게
+                            timeout=10
                         )
-                        
+
                         if analyze_res.status_code == 200:
                             status.update(label="🚀 분석 시작됨!", state="complete")
                             time.sleep(1)
@@ -658,10 +388,9 @@ if idx < len(questions):
                         else:
                             status.update(label="⚠️ 분석 요청 실패", state="error")
                             st.error(analyze_res.text)
-                            
+
                     except Exception as e:
                         st.error(f"오류: {e}")
-
 
 else:
     # -----------------------------
@@ -676,3 +405,4 @@ else:
         # (선택) 여기서 세션 전체 분석 트리거 API를 호출할 수도 있음
         # requests.post(f"{API_BASE}/api/v1/analysis/session/{st.session_state.interview_session_id}", headers=headers)
         st.switch_page("pages/6_📊_리포트.py")
+    st.stop()
