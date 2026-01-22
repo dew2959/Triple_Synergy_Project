@@ -18,24 +18,14 @@ from app.repositories.content_repo import content_repo
 
 # Services
 # [NEW] Final Report Service
-from app.utils.report_llm_client import ReportLLMClient
-from app.services.final_report_service import FinalReportService
+from app.services.final_report_service import final_report_service
+
 
 # Schemas
 from app.schemas.visual import VisualDBPayload
 from app.schemas.voice import VoiceDBPayload
 from app.schemas.content import ContentDBPayload
 
-
-    # --- FinalReportService lazy init (import 시점 폭탄 방지) ---
-_FINAL_REPORT_SERVICE = None
-
-def _get_final_report_service():
-    global _FINAL_REPORT_SERVICE
-    if _FINAL_REPORT_SERVICE is None:
-        llm_client = ReportLLMClient(model="gpt-4o-mini")  # 또는 gpt-4o
-        _FINAL_REPORT_SERVICE = FinalReportService(llm_client)
-    return _FINAL_REPORT_SERVICE
 
 
 class AnalysisService:
@@ -256,7 +246,7 @@ class AnalysisService:
         
         try:
             # FinalReportService가 알아서 DB 긁어와서 처리함
-            report_result = _get_final_report_service().create_or_upsert(conn, session_id)
+            report_result = final_report_service.create_or_upsert(conn, session_id)
             
             if report_result:
                 print(f"✅ 종합 리포트 생성 완료 (Total Score: {report_result.total_score})")

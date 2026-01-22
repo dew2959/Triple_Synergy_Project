@@ -1,38 +1,29 @@
 import json
-from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field
+from typing import Any, Dict, List
 
+# LangChain
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+
+# Repositories & Utils
+from app.core.config import settings
 from app.repositories.final_report_repo import final_report_repo
 from app.repositories.answer_repo import answer_repo
 from app.repositories.visual_repo import visual_repo
 from app.repositories.voice_repo import voice_repo
 from app.repositories.content_repo import content_repo
 
-# 🔴 [수정] Utils Import
-from app.utils.report_llm_client import ReportLLMClient
-from app.utils.prompt_utils import build_final_report_prompt, sanitize_text, filter_or_raise
+# Schemas
+from app.schemas.report import (
+    FinalReportDBPayload,
+    FinalReportResult,
+    ModuleScoreSummary,
+    StrengthWeakness,
+    ActionPlan,
+    FinalReportLLMOut  # 위에서 추가한 모델 임포트
+)
 
-# --- Pydantic Output Models for Final Report ---
-class ActionPlanItem(BaseModel):
-    title: str
-    description: str
-
-class FinalReportLLMOut(BaseModel):
-    summary_headline: str
-    overall_feedback: str
-    visual_summary: Optional[str] = None
-    voice_summary: Optional[str] = None
-    content_summary: Optional[str] = None
-    visual_strengths_json: List[str] = Field(default_factory=list)
-    visual_weaknesses_json: List[str] = Field(default_factory=list)
-    voice_strengths_json: List[str] = Field(default_factory=list)
-    voice_weaknesses_json: List[str] = Field(default_factory=list)
-    content_strengths_json: List[str] = Field(default_factory=list)
-    content_weaknesses_json: List[str] = Field(default_factory=list)
-    action_plans_json: List[ActionPlanItem] = Field(default_factory=list)
-
-# --- Service Code ---
-
+# 점수 계산 헬퍼 함수 (기존 로직 유지)
 def _compute_session_scores(results: List[Dict[str, Any]]):
     v_scores, a_scores, c_scores = [], [], []
     for item in results:
@@ -58,6 +49,7 @@ def _compute_session_scores(results: List[Dict[str, Any]]):
     total = int(sum(valid)/len(valid)) if valid else 0
     return avg_v, avg_a, avg_c, total
 
+# 데이터 축소 헬퍼 함수 (기존 로직 유지)
 def _build_session_compact(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     compact_list = []
     for item in results:
@@ -70,13 +62,18 @@ def _build_session_compact(results: List[Dict[str, Any]]) -> List[Dict[str, Any]
         compact_list.append(compact)
     return compact_list
 
+
 class FinalReportService:
-    def __init__(self, llm_client: ReportLLMClient):
-        self.llm = llm_client
+    def __init__(self):
+        # 1. LangChain ChatOpenAI 초기화
+        self.llm = ChatOpenAI(
+            model="gpt-4o",  # 모델명
+            api_key=settings.OPENAI_API_KEY,
+            temperature=0.3
+        )
 
     def create_or_upsert(self, conn, session_id: int):
-        from app.schemas.report import FinalReportDBPayload, FinalReportResult, ModuleScoreSummary, StrengthWeakness, ActionPlan
-
+        # 1. DB에서 답변 데이터 조회
         answers = answer_repo.get_all_by_session_id(conn, session_id)
         if not answers:
             return None
@@ -91,24 +88,54 @@ class FinalReportService:
                 "content": content_repo.get_by_answer_id(conn, ans_id),
             })
 
+        # 2. 점수 계산
         avg_v, avg_a, avg_c, total = _compute_session_scores(results)
+        
+        # 3. LLM 입력 데이터 준비
         compact_list = _build_session_compact(results)
+        input_json_str = json.dumps(compact_list, ensure_ascii=False)
 
-        # 기본값 (실패 시)
+        # 4. LangChain 프롬프트 정의
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", """
+            너는 면접 피드백 리포트를 정리하는 전문 에디터다.
+            제공된 면접 데이터를 분석하여 강점, 약점, 개선점을 도출하라.
+            
+            [규칙]
+            1. 입력에 없는 사실을 지어내지 마라.
+            2. 피드백은 지원자에게 도움이 되는 구체적이고 정중한 톤으로 작성하라.
+            3. 각 항목(Visual, Voice, Content)별로 균형 있게 분석하라.
+            """),
+            ("human", """
+            [면접 분석 데이터]
+            {input_data}
+            
+            위 데이터를 바탕으로 종합 리포트를 작성해줘.
+            """)
+        ])
+
+        # 5. 체인 생성 (Prompt -> LLM -> Structured Output)
+        chain = prompt | self.llm.with_structured_output(FinalReportLLMOut)
+
+        # 기본값 설정
         llm_data = FinalReportLLMOut(
             summary_headline="분석 완료",
-            overall_feedback="AI 분석이 완료되었습니다."
+            overall_feedback="AI 분석이 완료되었습니다. 상세 결과를 확인해주세요.",
+            visual_strengths_json=[], visual_weaknesses_json=[],
+            voice_strengths_json=[], voice_weaknesses_json=[],
+            content_strengths_json=[], content_weaknesses_json=[],
+            action_plans_json=[]
         )
 
         try:
-            prompt = build_final_report_prompt({"results": compact_list})
-            # 🔴 [수정] 제네릭 generate 사용
-            json_str = self.llm.generate(prompt, response_format=FinalReportLLMOut, temperature=0.3)
-            llm_data = FinalReportLLMOut.model_validate_json(json_str)
+            # 6. 체인 실행
+            llm_data = chain.invoke({"input_data": input_json_str})
+            
         except Exception as e:
-            print(f"❌ Final Report LLM Error: {e}")
+            print(f"❌ [LangChain Error] Final Report Generation Failed: {e}")
+            # 실패 시 위에서 만든 기본값(llm_data)이 사용됨
 
-        # DB Payload 생성
+        # 7. DB 저장용 Payload 생성
         db_payload = FinalReportDBPayload(
             session_id=session_id,
             total_score=total,
@@ -117,17 +144,22 @@ class FinalReportService:
             avg_visual_score=avg_v,
             avg_voice_score=avg_a,
             avg_content_score=avg_c,
+            
             visual_strengths_json=llm_data.visual_strengths_json,
             visual_weaknesses_json=llm_data.visual_weaknesses_json,
             voice_strengths_json=llm_data.voice_strengths_json,
             voice_weaknesses_json=llm_data.voice_weaknesses_json,
             content_strengths_json=llm_data.content_strengths_json,
             content_weaknesses_json=llm_data.content_weaknesses_json,
+            
+            # ActionPlanItem 리스트를 dict 리스트로 변환
             action_plans_json=[ap.model_dump() for ap in llm_data.action_plans_json],
         )
 
+        # 8. DB Upsert
         row = final_report_repo.upsert_final_report(conn, db_payload.model_dump())
 
+        # 9. 결과 반환
         return FinalReportResult(
             session_id=row["session_id"],
             total_score=row["total_score"],
@@ -142,3 +174,6 @@ class FinalReportService:
             action_plans=[ActionPlan(**ap) for ap in (row.get("action_plans_json") or [])],
             created_at=str(row.get("created_at"))
         )
+
+# 싱글톤 인스턴스
+final_report_service = FinalReportService()
