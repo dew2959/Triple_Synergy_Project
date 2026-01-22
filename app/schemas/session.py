@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 from enum import Enum
 
 # DB의 ENUM과 일치시키는 파이썬 Enum
@@ -9,6 +9,16 @@ class SessionStatus(str, Enum):
     IN_PROGRESS = "IN_PROGRESS"
     ANALYZING = "ANALYZING"
     COMPLETED = "COMPLETED"
+
+class QuestionItem(BaseModel):
+    question_id: int
+    content: str
+    category: str
+    order_index: int
+
+    class Config:
+        from_attributes = True
+
 
 class SessionCreate(BaseModel):
     """

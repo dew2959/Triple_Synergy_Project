@@ -2,14 +2,21 @@ import streamlit as st
 import requests
 import time
 
+import cv2
+import numpy as np
 
-# 1. 로그인 및 세션 체크
-if not st.session_state.get('user'):
+
+# -----------------------------
+# 1. 로그인 체크
+# -----------------------------
+if not st.session_state.get('user') or not st.session_state.get('token'):
     st.warning("로그인이 필요한 서비스입니다.")
     st.switch_page("pages/3_🔐_로그인.py")
     st.stop()
 
-# --- 분석 실패 시 화면을 구성하는 함수 (상단에 정의) ---
+# -----------------------------
+# 2. 분석 실패 UI 함수
+# -----------------------------
 def display_analysis_failure(answer_id, error_msg="네트워크 연결이 불안정합니다."):
     st.error("⚠️ AI 분석 중 오류가 발생했습니다.")
     
@@ -32,15 +39,17 @@ def display_analysis_failure(answer_id, error_msg="네트워크 연결이 불안
         if st.button("📹 답변 다시 하기", use_container_width=True, type="primary"):
             st.rerun()
 
-# --- 메인 UI 시작 ---
-st.title("📹 AI 실시간 모의면접")
-st.info("질문을 읽고 답변 영상을 업로드해주세요. AI가 당신의 인터페이스와 내용을 분석합니다.")
 
-# API 설정
+
+# -----------------------------
+# 3. API 및 세션 초기화
+# -----------------------------
 API_BASE = "http://localhost:8000"
 headers = {"Authorization": f"Bearer {st.session_state.get('token')}"}
 
-# 2. 면접 세션 상태 관리 초기화
+st.title("📹 AI 실시간 모의면접")
+
+# 면접 상태 초기화
 if 'current_question_idx' not in st.session_state:
     st.session_state.current_question_idx = 0
 if 'interview_session_id' not in st.session_state:
@@ -48,12 +57,53 @@ if 'interview_session_id' not in st.session_state:
 if 'questions' not in st.session_state:
     st.session_state.questions = []
 
-# 3. 면접 시작 버튼 (최초 1회 실행)
+# -----------------------------
+# 4. Haar Cascade 초기화
+# -----------------------------
+face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+
+# -----------------------------
+# 4. 면접 시작 전 가이드 화면
+# -----------------------------
 if st.session_state.interview_session_id is None:
-    if st.button("면접 시작하기", type="primary", use_container_width=True):
+    st.subheader("📌 면접 가이드라인")
+    st.info("""
+    1. 밝은 조명을 유지하세요 
+    2. 얼굴을 화면 중앙에 두고 카메라를 바라보세요.
+    3. 답변은 1~2분 내외로 간결하게 말해주세요.
+    4. 말하는 속도와 발음을 또렷하게 유지해주세요.
+    5. 준비가 완료되면 버튼을 눌러 면접을 시작합니다.
+    """)
+
+    # 웹캠 + 얼굴 위치 가이드
+    camera_input = st.camera_input("📷 카메라 테스트")
+    if camera_input:
+        # OpenCV로 변환
+        file_bytes = np.asarray(bytearray(camera_input.read()), dtype=np.uint8)
+        img = cv2.imdecode(file_bytes, 1)
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        
+        # 얼굴 검출
+        faces = face_cascade.detectMultiScale(gray, 1.1, 4)
+
+        # 영상 중앙 가이드 박스
+        h, w, _ = img.shape
+        guide_w, guide_h = int(w*0.3), int(h*0.5)
+        guide_x, guide_y = w//2 - guide_w//2, h//2 - guide_h//2
+        cv2.rectangle(img, (guide_x, guide_y), (guide_x+guide_w, guide_y+guide_h), (0,255,0), 2)
+
+        # 얼굴 위치 표시
+        for (x, y, fw, fh) in faces:
+            cv2.rectangle(img, (x, y), (x+fw, y+fh), (255,0,0), 2)
+
+        st.image(cv2.cvtColor(img, cv2.COLOR_BGR2RGB), use_column_width=True, caption="얼굴 위치 가이드")
+
+
+    # 면접 시작 버튼
+    if st.button("준비 완료 - 면접 시작", type="primary", use_container_width=True):
         try:
             response = requests.post(
-                f"{API_BASE}/api/v1/interview/session",
+                f"{API_BASE}/api/v1/session/",
                 json={"job_role": "Backend Developer", "company_name": "Tech Corp"},
                 headers=headers
             )
@@ -61,68 +111,81 @@ if st.session_state.interview_session_id is None:
                 data = response.json()
                 st.session_state.interview_session_id = data['session_id']
                 st.session_state.questions = data['questions']
+                st.session_state.current_question_idx = 0
                 st.rerun()
+            else:
+                st.error(f"세션 생성 실패: {response.status_code}")
         except Exception as e:
             st.error(f"세션 생성 실패: {e}")
     st.stop()
 
-# 4. 질문 제시 및 영상 업로드 UI
+# -----------------------------
+# 5. 질문 진행 및 답변 녹화
+# -----------------------------
 questions = st.session_state.questions
 idx = st.session_state.current_question_idx
 
 if idx < len(questions):
     current_q = questions[idx]
-    
-    st.subheader(f"Q{idx + 1}. {current_q['content']}")
+    st.subheader(f"Q{idx+1}. {current_q['content']}")
     st.caption(f"카테고리: {current_q['category']}")
 
-    # 영상 업로드 컴포넌트
-    video_file = st.file_uploader(f"질문 {idx+1}에 대한 답변 영상 업로드", type=['mp4', 'mov', 'avi'])
-
+    # 얼굴 가이드 포함 카메라 입력
+    video_file = st.camera_input(f"Q{idx+1} 답변 촬영 (얼굴을 중앙에 맞춰주세요)")
     if video_file:
-        if st.button(f"{idx + 1}번 답변 제출", use_container_width=True, type="primary"):
-            # 분석 상태창 표시
-            with st.status("🚀 AI 분석 시스템 가동 중...", expanded=True) as status_ui:
+        file_bytes = np.asarray(bytearray(video_file.read()), dtype=np.uint8)
+        img = cv2.imdecode(file_bytes, 1)
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        
+        faces = face_cascade.detectMultiScale(gray, 1.1, 4)
+
+        h, w, _ = img.shape
+        guide_w, guide_h = int(w*0.3), int(h*0.5)
+        guide_x, guide_y = w//2 - guide_w//2, h//2 - guide_h//2
+        cv2.rectangle(img, (guide_x, guide_y), (guide_x+guide_w, guide_y+guide_h), (0,255,0), 2)
+        for (x, y, fw, fh) in faces:
+            cv2.rectangle(img, (x, y), (x+fw, y+fh), (255,0,0), 2)
+
+        st.image(cv2.cvtColor(img, cv2.COLOR_BGR2RGB), use_column_width=True, caption="얼굴 위치 가이드")
+
+        # 제출 버튼
+        if st.button(f"제출 - Q{idx+1}", use_container_width=True, type="primary"):
+            with st.status("🚀 AI 분석 중...", expanded=True) as status_ui:
                 try:
-                    # [Step 1] 파일 전송
-                    st.write("📂 영상을 서버로 업로드 중...")
+                    # 서버 업로드
                     res = requests.post(
-                        f"{API_BASE}/api/v1/interview/answer",
-                        files={"video": video_file},
+                        f"{API_BASE}/api/v1/interview/upload",
+                        files={"file": video_file},
                         data={"question_id": current_q['question_id']},
                         headers=headers
                     )
 
-                    if res.status_code == 201:
-                        # ⚠️ 중요: 여기서 'result' 변수를 생성하여 에러를 방지합니다.
+                    if res.status_code in (200, 201):
                         result = res.json()
-                        
-                        # [Step 2] AI 분석 시뮬레이션 및 실제 상태 체크
-                        st.write("🧠 AI가 내용을 분석하고 있습니다 (STT/Visual/Voice)...")
-                        time.sleep(2) 
-                        
-                        # API 응답 결과에 따른 화면 처리
-                        if result.get("status") == "FAILED":
+                        st.write("✅ 영상 업로드 완료")
+                        st.write("🧠 AI 분석 진행 중...")
+                        time.sleep(2)
+
+                        if result.get("analysis_status") == "FAILED":
                             status_ui.update(label="❌ 분석 실패", state="error", expanded=True)
                             display_analysis_failure(result.get("answer_id"), result.get("message"))
                         else:
-                            # 성공 시 로직
-                            status_ui.update(label="✅ 분석 완료!", state="complete", expanded=False)
+                            status_ui.update(label="✅ 분석 완료", state="complete", expanded=False)
                             st.toast("답변이 성공적으로 기록되었습니다!", icon="🎉")
-                            time.sleep(1)
                             st.session_state.current_question_idx += 1
                             st.rerun()
                     else:
                         st.error(f"서버 응답 오류: {res.status_code}")
-                        
+
                 except Exception as e:
-                    # 시스템 레벨 에러 발생 시 (네트워크 단절 등)
-                    status_ui.update(label="⚠️ 시스템 오류 발생", state="error")
+                    status_ui.update(label="⚠️ 시스템 오류", state="error")
                     display_analysis_failure("N/A", str(e))
 
-# 5. 모든 면접 종료 시
+# -----------------------------
+# 6. 모든 질문 종료 시
+# -----------------------------
 else:
     st.balloons()
-    st.success("모든 면접 질문이 끝났습니다! AI 분석이 완료될 때까지 잠시만 기다려주세요.")
-    if st.button("결과 리포트 보러가기", type="primary", use_container_width=True):
+    st.success("모든 면접 질문이 종료되었습니다!")
+    if st.button("📊 결과 리포트 보기", type="primary", use_container_width=True):
         st.switch_page("pages/6_📊_리포트.py")

@@ -5,6 +5,7 @@ from typing import List
 from app.api.deps import get_db_conn, get_current_user
 from app.repositories.session_repo import session_repo
 from app.repositories.resume_repo import resume_repo
+from app.repositories.question_repo import question_repo
 from app.schemas.session import SessionCreate, SessionResponse
 
 router = APIRouter()
@@ -28,13 +29,14 @@ def create_interview_session(
 ):
     """
     [면접 세션 생성]
-    1. resume_id를 보낸 경우 -> 그 이력서 사용
-    2. resume_id를 안 보낸 경우 -> 내 가장 최신 이력서 사용
+    - resume_id를 보내면 해당 이력서 사용
+    - resume_id 없으면 최신 이력서 사용
+    - 기본 질문 5개를 questions 테이블에 생성
     """
     user_id = current_user['user_id']
     resume_target = None
 
-    # (A) ID를 직접 지정한 경우
+    # (A) 이력서 ID를 직접 지정한 경우
     if session_in.resume_id:
         resume_target = resume_repo.get_by_id(conn, session_in.resume_id)
         if not resume_target:
@@ -53,7 +55,12 @@ def create_interview_session(
     company_name = resume_target.get('target_company') or ""
     final_resume_id = resume_target['resume_id']
 
+    # -------------------------------
+    # 2. 세션 생성
+    # -------------------------------
     try:
+        print("DEBUG: user_id=", user_id, "resume_id=", final_resume_id, "job_role=", job_role, "company_name=", company_name)
+
         new_session = session_repo.create(
             conn,
             user_id=user_id,
@@ -61,9 +68,53 @@ def create_interview_session(
             job_role=job_role,
             company_name=company_name
         )
+
+        session_id = new_session['session_id']
+
+        # 2. 기본 질문 풀 가져오기
+        fixed_intro_qs = question_repo.get_by_pool_category(conn, "FIXED_INTRO", order_by="fixed_order")
+        random_body_qs = question_repo.get_random_body_questions(conn, count=3)
+        fixed_outro_qs = question_repo.get_by_pool_category(conn, "FIXED_OUTRO", order_by="fixed_order")
+
+        # 3. questions 테이블에 순서대로 저장
+        order_idx = 1
+
+        # FIXED_INTRO 질문 삽입
+        for q in fixed_intro_qs:
+            question_repo.create(conn, {
+                "session_id": session_id,
+                "content": q['content'],
+                "category": q['category'],
+                "order_index": order_idx
+            })
+            order_idx += 1
+
+        # RANDOM_BODY 질문 삽입
+        for q in random_body_qs:
+            question_repo.create(conn, {
+                "session_id": session_id,
+                "content": q['content'],
+                "category": q['category'],
+                "order_index": order_idx
+            })
+            order_idx += 1
+
+        # FIXED_OUTRO 질문 삽입
+        for q in fixed_outro_qs:
+            question_repo.create(conn, {
+                "session_id": session_id,
+                "content": q['content'],
+                "category": q['category'],
+                "order_index": order_idx
+            })
+            order_idx += 1
+
         conn.commit()
         return new_session
+
         
     except Exception as e:
         conn.rollback()
+        import traceback
+        print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"세션 생성 실패: {str(e)}")
