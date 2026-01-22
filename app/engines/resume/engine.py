@@ -11,13 +11,7 @@ from langchain_core.output_parsers import PydanticOutputParser
 from app.utils.prompt_utils import sanitize_text
 from app.core.config import settings
 
-# 1. LLM이 반환해야 할 데이터 구조 정의 (Pydantic)
-class ResumeQuestionsOut(BaseModel):
-    questions: List[str] = Field(
-        description="이력서를 보고 생성한 날카로운 면접 질문 2개",
-        min_items=2,
-        max_items=2
-    )
+from app.schemas.resume import ResumeQuestionsOut
 
 class ResumeQuestionEngine:
     def __init__(self):

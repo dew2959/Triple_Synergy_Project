@@ -81,3 +81,13 @@ class ResumeResponse(ResumeCreate):
 
     class Config:
         from_attributes = True
+
+class ResumeQuestionsOut(BaseModel):
+    """
+    [LLM 출력] 이력서 기반 생성 질문
+    """
+    questions: List[str] = Field(
+        description="이력서를 보고 생성한 날카로운 면접 질문 2개",
+        min_items=2,
+        max_items=2
+    )
