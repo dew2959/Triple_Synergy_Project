@@ -413,8 +413,8 @@ if idx < len(questions):
     <div id="warning" style="color:red; font-weight:bold; margin-top:6px;"></div>
 
     <div id="controls">
-    <button id="startBtn" onclick="startRecording()">▶ 녹화 시작</button>
-    <button id="stopBtn" onclick="stopRecording()" disabled>■ 녹화 종료</button>
+    <button id="startBtn" onclick="startRecording()">▶ 답변 시작</button>
+    <button id="stopBtn" onclick="stopRecording()" disabled>■ 답변 종료</button>
     </div>
 
     <script>
