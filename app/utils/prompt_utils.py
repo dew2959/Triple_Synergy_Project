@@ -90,18 +90,3 @@ def build_final_report_prompt(compact: Dict[str, Any]) -> str:
 {safe_json(compact)}
 """.strip()
 
-def build_resume_question_prompt(job_role: str, resume_text: str) -> str:
-    return f"""
-너는 전문 면접관이다. 지원자의 이력서 내용을 바탕으로 직무 역량과 프로젝트 경험을 검증할 수 있는 날카로운 면접 질문 2개를 생성하라.
-
-[지원 직무]
-{job_role}
-
-[이력서 내용]
-{sanitize_text(resume_text)}
-
-[규칙]
-1. 질문은 한국어로 작성할 것.
-2. 이력서의 구체적인 프로젝트나 경험을 언급하며 질문할 것.
-3. 반드시 JSON 리스트 포맷으로 출력할 것.
-""".strip()

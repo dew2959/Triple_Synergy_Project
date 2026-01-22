@@ -54,3 +54,29 @@ class FinalReportDBPayload(BaseModel):
     content_weaknesses_json: List[str] = []
 
     action_plans_json: List[Dict[str, str]] = []
+
+
+
+# LLM이 출력할 구조 정의 (LangChain용)
+class ActionPlanItem(BaseModel):
+    title: str = Field(description="액션 플랜 제목")
+    description: str = Field(description="구체적인 실행 방법")
+
+class FinalReportLLMOut(BaseModel):
+    summary_headline: str = Field(description="면접 전체를 관통하는 한 줄 요약")
+    overall_feedback: str = Field(description="면접 전체에 대한 종합 피드백 (3~4문장)")
+
+    visual_summary: Optional[str] = Field(None, description="비주얼(표정/자세) 요약")
+    voice_summary: Optional[str] = Field(None, description="음성(목소리/빠르기) 요약")
+    content_summary: Optional[str] = Field(None, description="내용(논리/직무) 요약")
+
+    visual_strengths_json: List[str] = Field(description="비주얼 강점 2~4개")
+    visual_weaknesses_json: List[str] = Field(description="비주얼 약점 2~4개")
+
+    voice_strengths_json: List[str] = Field(description="음성 강점 2~4개")
+    voice_weaknesses_json: List[str] = Field(description="음성 약점 2~4개")
+
+    content_strengths_json: List[str] = Field(description="내용 강점 2~4개")
+    content_weaknesses_json: List[str] = Field(description="내용 약점 2~4개")
+
+    action_plans_json: List[ActionPlanItem] = Field(description="개선 행동 계획 3~7개")
