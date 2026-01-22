@@ -7,6 +7,7 @@ from app.repositories.session_repo import session_repo
 from app.repositories.resume_repo import resume_repo
 from app.repositories.question_repo import question_repo
 from app.schemas.session import SessionCreate, SessionResponse
+from app.services.question_generation_service import question_generation_service 
 
 router = APIRouter()
 
@@ -47,13 +48,18 @@ def create_interview_session(
     # (B) ID 없이 요청한 경우 -> 최신 이력서 자동 조회
     else:
         resume_target = resume_repo.get_latest_by_user_id(conn, user_id)
-        if not resume_target:
-            raise HTTPException(status_code=400, detail="등록된 이력서가 없습니다. 먼저 이력서를 등록해주세요.")
+
 
     # 3. 정보 추출 및 세션 생성 (공통 로직)
-    job_role = resume_target.get('job_title') or "General"
-    company_name = resume_target.get('target_company') or ""
-    final_resume_id = resume_target['resume_id']
+    if resume_target:
+        job_role = resume_target.get('job_title') or "General"
+        company_name = resume_target.get('target_company') or ""
+        final_resume_id = resume_target['resume_id']
+    else:
+        # 이력서가 없는 경우 기본값 설정
+        job_role = "General"
+        company_name = ""
+        final_resume_id = None  # DB에 NULL로 들어감
 
     # -------------------------------
     # 2. 세션 생성

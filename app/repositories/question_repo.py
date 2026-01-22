@@ -2,31 +2,15 @@ from psycopg2.extras import RealDictCursor
 import random
 
 class QuestionRepository:
-    def create(self, conn, question_data: dict):
-        """
-        questions 테이블에 질문 저장
-        """
+    def create(self, conn, session_id: int, content: str, category: str, order_index: int):
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(
                 """
-                INSERT INTO questions (
-                    session_id, content, category, order_index
-                )
-                VALUES (
-                    %(session_id)s, 
-                    %(content)s, 
-                    %(category)s, 
-                    %(order_index)s
-                )
-                RETURNING *
+                INSERT INTO questions (session_id, content, category, order_index)
+                VALUES (%s, %s, %s, %s)
+                RETURNING question_id
                 """,
-                {
-                    "session_id": question_data["session_id"],
-                    "content": question_data["content"],
-                    # Enum은 string value로 변환해서 저장
-                    "category": str(question_data["category"]),
-                    "order_index": question_data["order_index"]
-                }
+                (session_id, content, category, order_index)
             )
             return cur.fetchone()
 
@@ -81,4 +65,25 @@ class QuestionRepository:
         return random.sample(all_body, min(count, len(all_body)))
 
 
+    def get_fixed_question_from_pool(self, conn, order_num: int):
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                "SELECT * FROM default_question_pool WHERE fixed_order = %s LIMIT 1",
+                (order_num,)
+            )
+            return cur.fetchone()
+
+    # 🔴 [추가] 랜덤 질문 가져오기 (이력서 없을 때 사용)
+    def get_random_questions_from_pool(self, conn, count: int):
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT * FROM default_question_pool 
+                WHERE fixed_order IS NULL 
+                ORDER BY RANDOM() 
+                LIMIT %s
+                """,
+                (count,)
+            )
+            return cur.fetchall()
 question_repo = QuestionRepository()

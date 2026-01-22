@@ -78,5 +78,19 @@ class AnswerRepository:
                 (session_id,)
             )
             return cur.fetchall()
-
+    def get_session_id(self, conn, answer_id: int) -> int:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT q.session_id 
+                FROM answers a
+                JOIN questions q ON a.question_id = q.question_id
+                WHERE a.answer_id = %s
+                """,
+                (answer_id,)
+            )
+            row = cur.fetchone()
+            if row:
+                return row['session_id']
+            return None
 answer_repo = AnswerRepository()

@@ -11,6 +11,8 @@ from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
 from app.engines.common.result import ok_result, error_result
+from app.engines.visual.timestamp_utils import compute_timestamp_ms
+
 
 
 MODULE_NAME = "visual"
@@ -24,8 +26,6 @@ NOSE_CENTER_RANGE: Tuple[float, float] = (0.40, 0.60)
 NOSE_LANDMARK_IDX = 0
 STD_REF = 0.02
 MAX_SAMPLES = 600
-
-_LANDMARKER: Optional[vision.FaceLandmarker] = None
 
 
 def _clamp01(x: float) -> float:
@@ -47,13 +47,12 @@ def build_face_landmarker(model_path: str) -> vision.FaceLandmarker:
 
 
 def _get_landmarker() -> vision.FaceLandmarker:
-    global _LANDMARKER
-    if _LANDMARKER is None:
-        _LANDMARKER = build_face_landmarker(DEFAULT_MODEL_PATH)
-    return _LANDMARKER
+     # ✅ 요청마다 새 인스턴스 생성 (서비스에서 재호출 시 timestamp 상태 문제 제거)
+    return build_face_landmarker(DEFAULT_MODEL_PATH)
 
 
 def run_visual(video_path: str) -> Dict[str, Any]:
+    landmarker = _get_landmarker()
     try:
         if not video_path or not isinstance(video_path, str):
             return error_result(MODULE_NAME, "InvalidInput", "video_path is required (non-empty string).")
@@ -97,9 +96,12 @@ def run_visual(video_path: str) -> Dict[str, Any]:
         # ✅ POS_MSEC가 0부터 시작하지 않거나 들쭉날쭉할 수 있어서 기준점(base) 보정
         base_ts_ms: Optional[float] = None
 
+        forced_inc = 0  # timestamp strict 증가 강제된 횟수
+
         # ------------------------------------------------------------
         # (5) 비디오 프레임 루프
         # ------------------------------------------------------------
+
         while True:
             ret, frame = cap.read()
             if not ret:
@@ -115,26 +117,27 @@ def run_visual(video_path: str) -> Dict[str, Any]:
                 break
 
             # --------------------------------------------------------
-            # ✅ timestamp 생성 (우선순위: POS_MSEC(base 보정) -> 프레임 기반 fallback)
+            # ✅ timestamp 생성 (유틸로 분리)
             # --------------------------------------------------------
             raw_pos_msec = cap.get(cv2.CAP_PROP_POS_MSEC)
+            pos_frames = cap.get(cv2.CAP_PROP_POS_FRAMES)
 
-            # base 설정: 첫 샘플 프레임에서의 pos_msec을 0 기준으로 맞춤
-            if base_ts_ms is None:
-                base_ts_ms = raw_pos_msec
+            prev_before = prev_ts_ms
 
-            # 1) POS_MSEC 기반 (base 보정)
-            raw_ts_ms = int(round(raw_pos_msec - (base_ts_ms or 0.0)))
+            timestamp_ms, base_ts_ms, prev_ts_ms = compute_timestamp_ms(
+                raw_pos_msec=raw_pos_msec,
+                pos_frames=pos_frames,
+                fps=fps,
+                base_ts_ms=base_ts_ms,
+                prev_ts_ms=prev_before,
+                max_ts_ms=10_000_000,
+            )
 
-            # 2) fallback: POS_MSEC가 비정상(0만 나온다/음수/NaN 등)일 때 프레임 기반으로 계산
-            #    - 여기서 "현재 프레임 위치"를 사용하면 샘플링/스킵과 무관하게 실제 시간축에 맞음
-            if raw_ts_ms < 0 or raw_ts_ms > 10_000_000:  # 비정상 가드(너무 큰 값 방지)
-                pos_frames = cap.get(cv2.CAP_PROP_POS_FRAMES)
-                raw_ts_ms = int(round((float(pos_frames) / float(fps)) * 1000.0))
+            # strict 증가 강제가 발생했는지 체크
+            # (timestamp가 prev+1로 나온 경우는 강제 보정일 가능성이 높음)
+            if prev_before >= 0 and timestamp_ms == prev_before + 1:
+                forced_inc += 1
 
-            # 3) 단조 증가 보장
-            timestamp_ms = raw_ts_ms if raw_ts_ms > prev_ts_ms else (prev_ts_ms + 1)
-            prev_ts_ms = timestamp_ms
 
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
@@ -154,8 +157,11 @@ def run_visual(video_path: str) -> Dict[str, Any]:
 
         cap.release()
 
+        print(f"[visual] forced_increase_count={forced_inc} sampled={sampled}")
+
         if not face_present:
             return error_result(MODULE_NAME, "NoFrames", "No frames were processed from the video.")
+
 
         # ------------------------------------------------------------
         # (7) metric 계산
@@ -193,3 +199,8 @@ def run_visual(video_path: str) -> Dict[str, Any]:
 
     except Exception as e:
         return error_result(MODULE_NAME, type(e).__name__, str(e))
+    finally:
+        try:
+            landmarker.close()
+        except Exception:
+            pass
