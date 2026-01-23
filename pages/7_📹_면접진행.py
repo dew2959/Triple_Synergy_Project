@@ -357,6 +357,7 @@ if idx < len(questions):
                     st.session_state.recording_active = False
                     st.rerun()
 
+
     # ==========================
     # [하단] 제출 및 이동 버튼
     # ==========================
@@ -364,19 +365,21 @@ if idx < len(questions):
     if st.session_state.get("recorded_video"):
         st.divider()
         
-        # [A] 중간 질문 (1~4번) -> "다음 질문" 버튼
-        if idx < 4:
+        # [A] 중간 질문 (1~4번) -> "제출하고 다음 질문으로 이동"
+        if idx < len(questions) - 1:
             if st.button("➡ 제출하고 다음 질문으로 이동", type="primary", width="stretch"):
                 with st.spinner("답변을 업로드 중입니다..."):
                     try:
+                        # 파일 객체 준비
                         with open(st.session_state.recorded_video, "rb") as f:
                             files = {
                                 "file": ("answer.mp4", f, "video/mp4")
                             }
+                            # ✅ [수정] question_id와 함께 보낼 때는 answer/upload 사용
                             data = {"question_id": str(current_q["question_id"])}
 
                             res = requests.post(
-                                f"{API_BASE}/api/v1/interview/upload",
+                                f"{API_BASE}/api/v1/answer/upload",  # 👈 여기가 수정됨
                                 headers=headers,
                                 files=files,
                                 data=data
@@ -389,12 +392,12 @@ if idx < len(questions):
                             time.sleep(0.5)
                             st.rerun()
                         else:
-                            st.error(res.text)
+                            st.error(f"업로드 실패: {res.text}")
 
                     except Exception as e:
                         st.error(f"업로드 오류: {e}")
 
-        # [B] 마지막 질문 (5번) -> "종료 및 분석" 버튼
+        # [B] 마지막 질문 (5번) -> "면접 종료 및 결과 분석 시작"
         else:
             if st.button("🏁 면접 종료 및 결과 분석 시작", type="primary", width="stretch"):
                 with st.status("마지막 답변을 저장하고 분석을 시작합니다...", expanded=True) as status:
@@ -406,8 +409,9 @@ if idx < len(questions):
                             }
                             data = {"question_id": str(current_q["question_id"])}
 
+                            # ✅ [수정] answer/upload 엔드포인트 사용
                             res = requests.post(
-                                f"{API_BASE}/api/v1/interview/upload",
+                                f"{API_BASE}/api/v1/answer/upload", # 👈 여기가 수정됨
                                 headers=headers,
                                 files=files,
                                 data=data
@@ -416,29 +420,33 @@ if idx < len(questions):
                         if res.status_code not in (200, 201):
                             status.update(label="❌ 마지막 영상 업로드 실패", state="error")
                             st.error(res.text)
-                            st.stop()
+                            st.stop() # 업로드 실패하면 분석으로 넘어가지 않음
 
                         status.write("✅ 답변 저장 완료")
 
-                        # 2. 분석 요청 (세션 단위)
+                        # 2. 세션 분석 요청 (영상 업로드 성공 후 실행)
                         session_id = st.session_state.interview_session_id
-
+                        
+                        status.write("🧠 AI가 면접 내용을 분석 중입니다...")
+                        
                         analyze_res = requests.post(
                             f"{API_BASE}/api/v1/analysis/session/{session_id}",
                             headers=headers,
-                            timeout=10
+                            timeout=10 # 분석 트리거만 하고 빠져나옴 (백엔드 비동기 처리에 따라 다름)
                         )
 
                         if analyze_res.status_code == 200:
-                            status.update(label="🚀 분석 시작됨!", state="complete")
+                            status.update(label="🚀 분석 완료! 결과 페이지로 이동합니다.", state="complete")
                             time.sleep(1)
                             st.switch_page("pages/6_📊_리포트.py")
                         else:
                             status.update(label="⚠️ 분석 요청 실패", state="error")
-                            st.error(analyze_res.text)
+                            st.error(f"분석 요청 실패: {analyze_res.text}")
+                            # 실패해도 리포트 페이지로 이동할지, 머무를지 선택 (여기선 머무름)
 
                     except Exception as e:
-                        st.error(f"오류: {e}")
+                        status.update(label="⚠️ 시스템 오류", state="error")
+                        st.error(f"오류 발생: {e}")
 
 else:
     # -----------------------------
