@@ -210,8 +210,11 @@ async def generate_lipsync(
             "--face", face_path,
             "--audio", audio_wav_path,
             "--outfile", out_mp4_path,
-            "--resize_factor", str(resize_factor),
-            "--static", "1" # ✅ 추가
+            "--resize_factor", "4", # GPU로 올렸을 때 수정할 부분 1
+            "--static", "1", # ✅ 추가
+            "--wav2lip_batch_size", "128", # 시간 줄이기 위해 추가 1
+            "--face_det_batch_size", "1", # 시간 줄이기 위해 추가 2
+            "--fps", "15", # 시간 줄이기 위해 추가 3
         ]
         if nosmooth:
             cmd_w2l.append("--nosmooth")
@@ -231,7 +234,7 @@ async def generate_lipsync(
         cmd_enhance = [
             "ffmpeg", "-y",
             "-i", out_mp4_path,
-            "-vf", "scale=iw*2 :ih*2:flags=lanczos,unsharp=5:5:1.2:5:5:0.0",
+            # "-vf", "scale=iw*2 :ih*2:flags=lanczos,unsharp=5:5:1.2:5:5:0.0", # GPU로 올렸을 때 주석 풀 부분 2
             "-c:v", "libx264",
             "-crf", "18",
             "-preset", "veryfast",

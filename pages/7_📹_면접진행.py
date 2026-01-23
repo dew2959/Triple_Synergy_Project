@@ -222,7 +222,7 @@ if idx < len(questions):
         # - 질문별로 mp3/mp4를 session_state에 캐시해서 중복 생성 방지
 
         # (1) 면접관 이미지 (이미 너 코드에 있던 거)
-        interviewer_img = "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8M3x8JUVDJTk2JUJDJUVBJUI1JUI0fGVufDB8fDB8fHww"
+        interviewer_img = "https://cdn.pixabay.com/photo/2024/05/26/11/40/business-8788636_1280.jpg"
         #st.image(interviewer_img, caption="AI 면접관", width="stretch")
 
 
