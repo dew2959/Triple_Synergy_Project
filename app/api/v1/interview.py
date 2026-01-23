@@ -211,6 +211,7 @@ async def generate_lipsync(
             "--audio", audio_wav_path,
             "--outfile", out_mp4_path,
             "--resize_factor", str(resize_factor),
+            "--static", "1" # ✅ 추가
         ]
         if nosmooth:
             cmd_w2l.append("--nosmooth")
