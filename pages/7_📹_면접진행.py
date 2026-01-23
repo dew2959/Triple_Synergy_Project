@@ -222,7 +222,7 @@ if idx < len(questions):
 
         # (1) 면접관 이미지 (이미 너 코드에 있던 거)
         interviewer_img = "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8M3x8JUVDJTk2JUJDJUVBJUI1JUI0fGVufDB8fDB8fHww"
-        st.image(interviewer_img, caption="AI 면접관", width="stretch")
+        #st.image(interviewer_img, caption="AI 면접관", width="stretch")
 
 
 
