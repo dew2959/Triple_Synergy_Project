@@ -23,10 +23,10 @@ def display_analysis_failure(answer_id, error_msg="네트워크 연결이 불안
     
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("🔄 분석 다시 시도", use_container_width=True):
+        if st.button("🔄 분석 다시 시도", width="stretch"):
             st.rerun()
     with col2:
-        if st.button("📹 답변 다시 하기", use_container_width=True, type="primary"):
+        if st.button("📹 답변 다시 하기", width="stretch", type="primary"):
             st.rerun()
 
 # -----------------------------
@@ -123,18 +123,25 @@ if st.session_state.interview_session_id is None:
     # 카메라 테스트 (공간 차지하므로 접을 수 있게)
     with st.expander("📷 카메라 테스트 열기", expanded=False):
         st.info("얼굴을 중앙 원 안에 맞추세요. 초록색이면 적절합니다.")
+
+        rtc_configuration = {
+            "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+        }
+
         webrtc_streamer(
             key="camera_test",
             mode=WebRtcMode.SENDRECV,
             video_processor_factory=FaceGuideTransformer,
             media_stream_constraints={"video": True, "audio": False},
-            async_processing=True
+            rtc_configuration=rtc_configuration,
+            async_processing=True,
+            desired_playing_state=True
         )
 
     # ---------------------------------------------------------
     # (4) 면접 시작 버튼
     # ---------------------------------------------------------
-    if st.button("🚀 준비 완료 - 면접 시작", type="primary", use_container_width=True):
+    if st.button("🚀 준비 완료 - 면접 시작", type="primary", width="stretch"):
         if not selected_resume_id:
             st.error("이력서를 선택해야 합니다.")
         else:
@@ -215,7 +222,7 @@ if idx < len(questions):
 
         # (1) 면접관 이미지 (이미 너 코드에 있던 거)
         interviewer_img = "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8M3x8JUVDJTk2JUJDJUVBJUI1JUI0fGVufDB8fDB8fHww"
-        # st.image(interviewer_img, caption="AI 면접관", use_container_width=True)
+        st.image(interviewer_img, caption="AI 면접관", width="stretch")
 
 
 
@@ -295,7 +302,8 @@ if idx < len(questions):
             rtc_configuration={
                 "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
             },
-            async_processing=True
+            async_processing=True,
+            desired_playing_state=True,  # ◀◀ [핵심] 이 옵션이 자동 실행(Start 버튼 생략 효과)을 만듭니다.
         )
 
         # 스트리밍이 실행 중이고 프로세서가 준비되었을 때만 실행
@@ -307,23 +315,30 @@ if idx < len(questions):
         # ---------------------------
         # 녹화 상태 UI
         # ---------------------------
+        # 간격 조정
+        st.write("")
+
         if not st.session_state.recording_active:
-            if st.button("⏺️ 답변 녹화 시작", use_container_width=True):
-                st.session_state.recording_active = True
-                st.toast("녹화를 시작합니다", icon="🎥")
-                st.rerun()
+            # 카메라가 켜져 있는지 확인 (state가 playing인지)
+            if webrtc_ctx.state.playing:
+                if st.button("⏺️ 답변 녹화 시작", width="stretch"):
+                    st.session_state.recording_active = True
+                    st.toast("녹화를 시작합니다", icon="🎥")
+                    st.rerun()
+
+            else:
+                st.info("카메라를 불러오는 중입니다...")
 
         else:
             st.warning("🔴 녹화 중입니다... 답변이 끝나면 종료 버튼을 누르세요.")
 
-            if st.button("⏹️ 답변 녹화 종료", type="primary", use_container_width=True):
+            if st.button("⏹️ 답변 녹화 종료", type="primary", width="stretch"):
                 # 녹화 종료 시점 처리
                 if webrtc_ctx.video_processor:
                     # 프로세서 내부의 녹화 종료 및 파일 저장 메소드 호출
                     # (FaceGuideTransformer 내부에 이 로직이 구현되어 있어야 함)
                     # 예: video_path = webrtc_ctx.video_processor.stop_recording()
                     
-                    # 기존 코드 활용
                     video_path = webrtc_ctx.video_processor.get_recorded_video()
 
                     if video_path:
@@ -350,7 +365,7 @@ if idx < len(questions):
         
         # [A] 중간 질문 (1~4번) -> "다음 질문" 버튼
         if idx < 4:
-            if st.button("➡ 제출하고 다음 질문으로 이동", type="primary", use_container_width=True):
+            if st.button("➡ 제출하고 다음 질문으로 이동", type="primary", width="stretch"):
                 with st.spinner("답변을 업로드 중입니다..."):
                     try:
                         with open(st.session_state.recorded_video, "rb") as f:
@@ -380,7 +395,7 @@ if idx < len(questions):
 
         # [B] 마지막 질문 (5번) -> "종료 및 분석" 버튼
         else:
-            if st.button("🏁 면접 종료 및 결과 분석 시작", type="primary", use_container_width=True):
+            if st.button("🏁 면접 종료 및 결과 분석 시작", type="primary", width="stretch"):
                 with st.status("마지막 답변을 저장하고 분석을 시작합니다...", expanded=True) as status:
                     try:
                         # 1. 마지막 영상 업로드
@@ -433,7 +448,7 @@ else:
     st.markdown("### 수고하셨습니다!")
     st.info("AI가 전체 면접 내용을 바탕으로 종합 리포트를 생성합니다.")
     
-    if st.button("📊 결과 리포트 확인하기", type="primary", use_container_width=True):
+    if st.button("📊 결과 리포트 확인하기", type="primary", width="stretch"):
         # (선택) 여기서 세션 전체 분석 트리거 API를 호출할 수도 있음
         # requests.post(f"{API_BASE}/api/v1/analysis/session/{st.session_state.interview_session_id}", headers=headers)
         st.switch_page("pages/6_📊_리포트.py")
