@@ -75,54 +75,58 @@ class FaceGuideTransformer(VideoProcessorBase):
     # 3. [수정] 저장 로직 (av 라이브러리로 영상+음성 합치기)
     # -------------------------------------------------------
     def get_recorded_video(self):
-        if not self.video_frames or not self.audio_frames:
-            return None
+            # 영상 데이터가 아예 없으면 실패 처리
+            if not self.video_frames:
+                print("녹화 실패: 수집된 비디오 프레임이 없습니다.")
+                return None
 
-        # 임시 파일 경로 생성
-        tfile = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
-        output_path = tfile.name
-        tfile.close()
+            tfile = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+            output_path = tfile.name
+            tfile.close()
 
-        try:
-            # PyAV 컨테이너 열기 (쓰기 모드)
-            container = av.open(output_path, mode="w")
+            try:
+                container = av.open(output_path, mode="w")
 
-            # --- 비디오 스트림 생성 ---
-            # fps는 대략 30으로 설정 (웹캠에 따라 다를 수 있음)
-            stream_v = container.add_stream("h264", rate=30)
-            stream_v.pix_fmt = "yuv420p"  # 웹/모바일 호환성 필수 픽셀 포맷
-            stream_v.width = self.video_frames[0].width
-            stream_v.height = self.video_frames[0].height
+                # 1. 비디오 스트림 생성
+                stream_v = container.add_stream("h264", rate=30)
+                stream_v.pix_fmt = "yuv420p"
+                stream_v.width = self.video_frames[0].width
+                stream_v.height = self.video_frames[0].height
 
-            # --- 오디오 스트림 생성 ---
-            stream_a = container.add_stream("aac", layout="stereo")
-            
-            # 1. 비디오 패킷 인코딩 및 저장
-            for frame in self.video_frames:
-                frame.pts = None # pts 재설정
-                for packet in stream_v.encode(frame):
+                # 2. 오디오 스트림 생성 (있을 때만!)
+                stream_a = None
+                if self.audio_frames:
+                    stream_a = container.add_stream("aac", layout="stereo")
+
+                # --- [A] 비디오 저장 ---
+                for frame in self.video_frames:
+                    frame.pts = None
+                    for packet in stream_v.encode(frame):
+                        container.mux(packet)
+                # 비디오 버퍼 비우기 (필수)
+                for packet in stream_v.encode():
                     container.mux(packet)
-            # 버퍼 비우기
-            for packet in stream_v.encode():
-                container.mux(packet)
 
-            # 2. 오디오 패킷 인코딩 및 저장
-            for frame in self.audio_frames:
-                frame.pts = None # pts 재설정
-                for packet in stream_a.encode(frame):
-                    container.mux(packet)
-            # 버퍼 비우기
-            for packet in stream_a.encode():
-                container.mux(packet)
+                # --- [B] 오디오 저장 (조건부) ---
+                # ★★★ 여기서부터 들여쓰기 주의! ★★★
+                if stream_a and self.audio_frames:
+                    for frame in self.audio_frames:
+                        frame.pts = None
+                        for packet in stream_a.encode(frame):
+                            container.mux(packet)
+                    
+                    # [중요] 이 부분이 반드시 if문 '안쪽'에 있어야 합니다.
+                    for packet in stream_a.encode():
+                        container.mux(packet)
 
-            container.close()
-            
-            # 메모리 초기화
-            self.video_frames = []
-            self.audio_frames = []
-            
-            return output_path
+                container.close()
+                
+                # 메모리 초기화
+                self.video_frames = []
+                self.audio_frames = []
+                
+                return output_path
 
-        except Exception as e:
-            print(f"Muxing Error: {e}")
-            return None
+            except Exception as e:
+                print(f"Muxing Error: {e}")
+                return None

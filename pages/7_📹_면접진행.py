@@ -12,6 +12,7 @@ if not st.session_state.get('user') or not st.session_state.get('token'):
     st.switch_page("pages/3_🔐_로그인.py")
     st.stop()
 
+
 # -----------------------------
 # 2. 분석 실패 UI 함수
 # -----------------------------
