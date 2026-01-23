@@ -3,6 +3,7 @@ from streamlit_webrtc import webrtc_streamer, WebRtcMode
 import requests
 import time
 from app.utils.camera_utils import FaceGuideTransformer
+from app.utils.save_utils import save_mp4, save_wav
 
 # -----------------------------
 # 1. 로그인 및 세션 체크
@@ -47,8 +48,19 @@ if 'questions' not in st.session_state:
     st.session_state.questions = []
 if "recorded_video" not in st.session_state:
     st.session_state.recorded_video = None
-if 'recording_active' not in st.session_state:
+if "recording_active" not in st.session_state:
     st.session_state.recording_active = False
+if "recording_done" not in st.session_state:
+    st.session_state.recording_done = False
+if "video_path" not in st.session_state:
+    st.session_state.video_path = None
+if "audio_path" not in st.session_state:
+    st.session_state.audio_path = None
+if "video_frames" not in st.session_state:
+    st.session_state.video_frames = []
+if "audio_frames" not in st.session_state:
+    st.session_state.audio_frames = []
+
 
 
 # ==============================================================================
@@ -289,80 +301,98 @@ if idx < len(questions):
     with col_user:
         st.markdown("### 🎙️ 답변 녹화")
 
-        # STUN 서버 설정 정의 
-        rtc_configuration = {
-            "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
-        }
-
         # 1. WebRTC 스트리머 설정 (STUN 서버 추가됨)
         webrtc_ctx = webrtc_streamer(
             key=f"user_record_{idx}",
             mode=WebRtcMode.SENDRECV,
-            video_processor_factory=FaceGuideTransformer,  # app/utils/camera_utils.py의 클래스
+            video_processor_factory=FaceGuideTransformer,
             media_stream_constraints={"video": True, "audio": True},
             rtc_configuration={
                 "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
             },
             async_processing=True,
-            desired_playing_state=True,  # ◀◀ [핵심] 이 옵션이 자동 실행(Start 버튼 생략 효과)을 만듭니다.
+            desired_playing_state=True,
         )
-
-        # 스트리밍이 실행 중이고 프로세서가 준비되었을 때만 실행
-        if webrtc_ctx.video_processor:
-            # FaceGuideTransformer 클래스 안에 'recording'이라는 속성이 있다고 가정합니다.
-            # 없다면 FaceGuideTransformer 클래스에 self.recording = False 를 추가해야 합니다.
-            webrtc_ctx.video_processor.recording = st.session_state.recording_active
 
         # ---------------------------
         # 녹화 상태 UI
         # ---------------------------
+        st.write(
+            "DEBUG | active:",
+            st.session_state.recording_active,
+            "done:",
+            st.session_state.recording_done,
+        )
+
         # 간격 조정
         st.write("")
 
-        if not st.session_state.recording_active:
-            # 카메라가 켜져 있는지 확인 (state가 playing인지)
-            if webrtc_ctx.state.playing:
-                if st.button("⏺️ 답변 녹화 시작", width="stretch"):
-                    st.session_state.recording_active = True
-                    st.toast("녹화를 시작합니다", icon="🎥")
-                    st.rerun()
+        # ✅ 녹화 완료 상태
+        if st.session_state.recording_done:
+            st.success("✅ 녹화가 완료되었습니다.")
 
+            if st.button("➡️ 다음 질문으로", type="primary", width="stretch"):
+                st.session_state.recording_done = False
+                st.session_state.recording_active = False
+
+                st.session_state.video_frames.clear()
+                st.session_state.audio_frames.clear()
+                st.session_state.video_path = None
+                st.session_state.audio_path = None
+
+                st.session_state.current_question_idx += 1
+                st.rerun()
+
+        # 🔴 녹화 중
+        elif st.session_state.recording_active:
+            st.warning("🔴 녹화 중입니다...")
+
+            # ⏹️ 먼저 종료 버튼 처리
+            if st.button("⏹️ 녹화 종료", type="primary", width="stretch"):
+                st.session_state.recording_active = False
+
+                video_path = save_mp4(st.session_state.video_frames)
+                audio_path = save_wav(st.session_state.audio_frames)
+
+                if video_path:
+                    st.session_state.video_path = video_path
+                    st.session_state.audio_path = audio_path
+                    st.session_state.recording_done = True
+
+                st.rerun()
+
+            # 🔥 프레임 수집은 버튼 아래 + while 금지
+            if webrtc_ctx and webrtc_ctx.state.playing:
+                if webrtc_ctx.video_receiver:
+                    try:
+                        frame = webrtc_ctx.video_receiver.get_frame(timeout=0.01)
+                        st.session_state.video_frames.append(frame)
+                    except:
+                        pass
+
+                if webrtc_ctx.audio_receiver:
+                    try:
+                        audio_frame = webrtc_ctx.audio_receiver.get_frame(timeout=0.01)
+                        st.session_state.audio_frames.append(audio_frame)
+                    except:
+                        pass
+
+
+        # 녹화 대기 상태 
+        else:
+            if webrtc_ctx and webrtc_ctx.state.playing:
+                if st.button("🎥 녹화 시작", type="primary", width="stretch"):
+                    st.session_state.recording_active = True
+                    st.rerun()
             else:
                 st.info("카메라를 불러오는 중입니다...")
-
-        else:
-            st.warning("🔴 녹화 중입니다... 답변이 끝나면 종료 버튼을 누르세요.")
-
-            if st.button("⏹️ 답변 녹화 종료", type="primary", width="stretch"):
-                # 녹화 종료 시점 처리
-                if webrtc_ctx.video_processor:
-                    # 프로세서 내부의 녹화 종료 및 파일 저장 메소드 호출
-                    # (FaceGuideTransformer 내부에 이 로직이 구현되어 있어야 함)
-                    # 예: video_path = webrtc_ctx.video_processor.stop_recording()
-                    
-                    video_path = webrtc_ctx.video_processor.get_recorded_video()
-
-                    if video_path:
-                        st.session_state.recorded_video = video_path
-                        st.session_state.recording_active = False
-                        st.success("✅ 녹화가 완료되었습니다.")
-                        st.rerun()
-                    else:
-                        st.error("녹화된 영상 데이터가 없습니다.")
-                        st.session_state.recording_active = False
-                        st.rerun()
-                else:
-                    st.error("카메라 연결이 끊겨 영상을 저장할 수 없습니다.")
-                    # 상태 강제 초기화
-                    st.session_state.recording_active = False
-                    st.rerun()
 
 
     # ==========================
     # [하단] 제출 및 이동 버튼
     # ==========================
     # 녹화된 영상이 있을 때만 버튼 활성화
-    if st.session_state.get("recorded_video"):
+    if st.session_state.get("video_path"):
         st.divider()
         
         # [A] 중간 질문 (1~4번) -> "제출하고 다음 질문으로 이동"
@@ -371,12 +401,17 @@ if idx < len(questions):
                 with st.spinner("답변을 업로드 중입니다..."):
                     try:
                         # 파일 객체 준비
-                        with open(st.session_state.recorded_video, "rb") as f:
+                        with open(st.session_state.video_path, "rb") as f:
                             files = {
                                 "file": ("answer.mp4", f, "video/mp4")
                             }
                             # ✅ [수정] question_id와 함께 보낼 때는 answer/upload 사용
-                            data = {"question_id": str(current_q["question_id"])}
+                            data = {
+                                "question_id": str(current_q["question_id"]),
+                                "has_audio": "true",
+                                "fps": "30",
+                                "source": "webrtc"
+                            }
 
                             res = requests.post(
                                 f"{API_BASE}/api/v1/answer/upload",  # 👈 여기가 수정됨
@@ -407,7 +442,12 @@ if idx < len(questions):
                             files = {
                                 "file": ("answer.mp4", f, "video/mp4")
                             }
-                            data = {"question_id": str(current_q["question_id"])}
+                            data = {
+                                "question_id": str(current_q["question_id"]),
+                                "has_audio": "true",
+                                "fps": "30",
+                                "source": "webrtc"
+                            }
 
                             # ✅ [수정] answer/upload 엔드포인트 사용
                             res = requests.post(
@@ -462,3 +502,4 @@ else:
         # requests.post(f"{API_BASE}/api/v1/analysis/session/{st.session_state.interview_session_id}", headers=headers)
         st.switch_page("pages/6_📊_리포트.py")
     st.stop()
+
