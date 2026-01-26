@@ -2,8 +2,10 @@ import streamlit as st
 from streamlit_webrtc import webrtc_streamer, WebRtcMode
 import requests
 import time
+import threading # [필수 추가] 쓰레딩 모듈
+import queue     # [필수 추가] 큐 모듈
 from app.utils.camera_utils import FaceGuideTransformer
-from app.utils.save_utils import save_mp4, save_wav
+from app.utils.save_utils import save_muxed_video
 
 # -----------------------------
 # 1. 로그인 및 세션 체크
@@ -204,6 +206,43 @@ if st.session_state.interview_session_id is None:
 questions = st.session_state.questions
 idx = st.session_state.current_question_idx
 
+# ==============================================================================
+# 백그라운드 녹화용 쓰레드 클래스 정의
+# 별도의 thread를 사용해서 백그라운드에서 녹화
+# 버튼 클릭 가능한지 test 요구.
+# (by ddu, Gemini 3 Pro)
+# ==============================================================================
+class RecorderThread(threading.Thread):
+    def __init__(self, webrtc_ctx):
+        super().__init__()
+        self.webrtc_ctx = webrtc_ctx
+        self.running = True
+        self.video_frames = []
+        self.audio_frames = []
+
+    def run(self):
+        while self.running:
+            if self.webrtc_ctx.video_receiver:
+                try:
+                    # 타임아웃을 줘서 블로킹 방지
+                    v_frame = self.webrtc_ctx.video_receiver.get_frame(timeout=0.05)
+                    if v_frame:
+                        self.video_frames.append(v_frame)
+                except queue.Empty:
+                    pass
+            
+            if self.webrtc_ctx.audio_receiver:
+                try:
+                    a_frame = self.webrtc_ctx.audio_receiver.get_frame(timeout=0.05)
+                    if a_frame:
+                        self.audio_frames.append(a_frame)
+                except queue.Empty:
+                    pass
+
+    def stop(self):
+        self.running = False
+# ==============================================================================
+
 if idx < len(questions):
     current_q = questions[idx]
     
@@ -295,15 +334,25 @@ if idx < len(questions):
         else:
             st.warning("오디오/영상 생성에 실패했습니다.")
 
+
+# ==============================================================================
+# 녹화가 끝나도 화면이 갱신 X 
+# -> "다음 질문" 버튼 안보임?
+# or
+# -> 버튼 눌러도 화면 전환 실패 
+# "다음 질문" 버튼을 누르면 st.rerun()으로 스크립트 재시작 추가
+#
+# (by ddu, Gemini 3 Pro)
+# ==============================================================================
     # ==========================
     # [오른쪽] 지원자(나) 녹화 영역
     # ==========================
     with col_user:
         st.markdown("### 🎙️ 답변 녹화")
 
-        # 1. WebRTC 스트리머 설정 (STUN 서버 추가됨)
+        # 1. WebRTC 스트리머
         webrtc_ctx = webrtc_streamer(
-            key=f"user_record_{idx}",
+            key=f"user_record_{idx}", # 키가 바뀌면 컴포넌트가 리셋되므로 질문마다 바뀜
             mode=WebRtcMode.SENDRECV,
             video_processor_factory=FaceGuideTransformer,
             media_stream_constraints={"video": True, "audio": True},
@@ -315,178 +364,148 @@ if idx < len(questions):
         )
 
         # ---------------------------
-        # 녹화 상태 UI
+        # 녹화 상태 UI & 로직
         # ---------------------------
-        st.write(
-            "DEBUG | active:",
-            st.session_state.recording_active,
-            "done:",
-            st.session_state.recording_done,
-        )
-
-        # 간격 조정
-        st.write("")
-
-        # ✅ 녹화 완료 상태
+        
+        # A. 녹화 완료 상태 (다음 질문 넘어가기)
         if st.session_state.recording_done:
             st.success("✅ 녹화가 완료되었습니다.")
-
-            if st.button("➡️ 다음 질문으로", type="primary", width="stretch"):
+            
+            # 다음 질문 버튼
+            if st.button("➡️ 다음 질문으로", type="primary", use_container_width=True):
+                # 상태 초기화
                 st.session_state.recording_done = False
                 st.session_state.recording_active = False
-
-                st.session_state.video_frames.clear()
-                st.session_state.audio_frames.clear()
+                st.session_state.video_frames = []
+                st.session_state.audio_frames = []
                 st.session_state.video_path = None
-                st.session_state.audio_path = None
-
+                
+                # 인덱스 증가
                 st.session_state.current_question_idx += 1
+                
+                # [핵심] 리런을 해서 페이지를 새로고침해야 다음 질문이 로드됨
                 st.rerun()
 
-        # 🔴 녹화 중
+        # B. 녹화 중 상태
         elif st.session_state.recording_active:
-            st.warning("🔴 녹화 중입니다...")
-
-            # ⏹️ 먼저 종료 버튼 처리
-            if st.button("⏹️ 녹화 종료", type="primary", width="stretch"):
+            st.warning("🔴 녹화 중입니다... (카메라를 응시하세요)")
+            
+            # 쓰레드가 없으면 시작 (최초 1회)
+            if "recorder_thread" not in st.session_state or not st.session_state.recorder_thread.is_alive():
+                if webrtc_ctx.state.playing:
+                    recorder = RecorderThread(webrtc_ctx)
+                    recorder.start()
+                    st.session_state.recorder_thread = recorder
+            
+            # 녹화 종료 버튼
+            if st.button("⏹️ 녹화 종료", type="primary", use_container_width=True):
                 st.session_state.recording_active = False
+                
+                # 쓰레드 정지 및 데이터 회수
+                if "recorder_thread" in st.session_state:
+                    recorder = st.session_state.recorder_thread
+                    recorder.stop()
+                    recorder.join() # 쓰레드 종료 대기
 
-                video_path = save_mp4(st.session_state.video_frames)
-                audio_path = save_wav(st.session_state.audio_frames)
+                    # 데이터 수집
+                    v_frames = recorder.video_frames
+                    a_frames = recorder.audio_frames  
+                    
+                    # 수집된 프레임 세션으로 이동
+                    # st.session_state.video_frames = recorder.video_frames
+                    # st.session_state.audio_frames = recorder.audio_frames
+                    
+                    # 쓰레드 제거
+                    del st.session_state.recorder_thread
 
-                if video_path:
-                    st.session_state.video_path = video_path
-                    st.session_state.audio_path = audio_path
-                    st.session_state.recording_done = True
+                    # [중요] 즉시 처리 후 상태 업데이트
+                    if v_frames:
+                        with st.spinner("영상을 병합하여 저장 중입니다..."):
+                            merged_path = save_muxed_video(v_frames, a_frames)
+                            if merged_path:
+                                st.session_state.video_path = merged_path
+                                st.session_state.recording_done = True      # 완료 플래그 ON
+                                st.session_state.recording_active = False    # 활성 플래그 OFF
+                                st.rerun() # 상태 반영을 위해 재실행
+                            else:
+                                st.error("영상 저장에 실패했습니다.")
+                    else:
+                        st.error("녹화된 프레임이 없습니다.")
+                        st.session_state.recording_active = False
+                        st.rerun()
 
-                st.rerun()
-
-            # 🔥 프레임 수집은 버튼 아래 + while 금지
-            if webrtc_ctx and webrtc_ctx.state.playing:
-                if webrtc_ctx.video_receiver:
-                    try:
-                        frame = webrtc_ctx.video_receiver.get_frame(timeout=0.01)
-                        st.session_state.video_frames.append(frame)
-                    except:
-                        pass
-
-                if webrtc_ctx.audio_receiver:
-                    try:
-                        audio_frame = webrtc_ctx.audio_receiver.get_frame(timeout=0.01)
-                        st.session_state.audio_frames.append(audio_frame)
-                    except:
-                        pass
-
-
-        # 녹화 대기 상태 
+        # C. 녹화 대기 상태
         else:
-            if webrtc_ctx and webrtc_ctx.state.playing:
-                if st.button("🎥 녹화 시작", type="primary", width="stretch"):
+            # 카메라가 켜져있을 때만 녹화 시작 버튼 활성화
+            if webrtc_ctx.state.playing:
+                if st.button("🎥 녹화 시작", type="primary", use_container_width=True):
                     st.session_state.recording_active = True
+                    st.session_state.recording_done = False # 명시적 초기화
                     st.rerun()
             else:
-                st.info("카메라를 불러오는 중입니다...")
+                st.info("카메라 로딩 중... (잠시만 기다려주세요)")
 
 
     # ==========================
-    # [하단] 제출 및 이동 버튼
+    # [하단] 제출 버튼 (업로드 로직 수정)
     # ==========================
-    # 녹화된 영상이 있을 때만 버튼 활성화
-    if st.session_state.get("video_path"):
+    if st.session_state.get("video_path") and st.session_state.recording_done:
         st.divider()
         
-        # [A] 중간 질문 (1~4번) -> "제출하고 다음 질문으로 이동"
-        if idx < len(questions) - 1:
-            if st.button("➡ 제출하고 다음 질문으로 이동", type="primary", width="stretch"):
-                with st.spinner("답변을 업로드 중입니다..."):
-                    try:
-                        # 파일 객체 준비
-                        with open(st.session_state.video_path, "rb") as f:
-                            files = {
-                                "file": ("answer.mp4", f, "video/mp4")
-                            }
-                            # ✅ [수정] question_id와 함께 보낼 때는 answer/upload 사용
-                            data = {
-                                "question_id": str(current_q["question_id"]),
-                                "has_audio": "true",
-                                "fps": "30",
-                                "source": "webrtc"
-                            }
-
-                            res = requests.post(
-                                f"{API_BASE}/api/v1/answer/upload",  # 👈 여기가 수정됨
-                                headers=headers,
-                                files=files,
-                                data=data
-                            )
-
-                        if res.status_code in (200, 201):
-                            st.session_state.recorded_video = None
-                            st.session_state.current_question_idx += 1
-                            st.toast("답변이 저장되었습니다.", icon="💾")
-                            time.sleep(0.5)
-                            st.rerun()
-                        else:
-                            st.error(f"업로드 실패: {res.text}")
-
-                    except Exception as e:
-                        st.error(f"업로드 오류: {e}")
-
-        # [B] 마지막 질문 (5번) -> "면접 종료 및 결과 분석 시작"
-        else:
-            if st.button("🏁 면접 종료 및 결과 분석 시작", type="primary", width="stretch"):
-                with st.status("마지막 답변을 저장하고 분석을 시작합니다...", expanded=True) as status:
-                    try:
-                        # 1. 마지막 영상 업로드
-                        with open(st.session_state.recorded_video, "rb") as f:
-                            files = {
-                                "file": ("answer.mp4", f, "video/mp4")
-                            }
-                            data = {
-                                "question_id": str(current_q["question_id"]),
-                                "has_audio": "true",
-                                "fps": "30",
-                                "source": "webrtc"
-                            }
-
-                            # ✅ [수정] answer/upload 엔드포인트 사용
-                            res = requests.post(
-                                f"{API_BASE}/api/v1/answer/upload", # 👈 여기가 수정됨
-                                headers=headers,
-                                files=files,
-                                data=data
-                            )
-
-                        if res.status_code not in (200, 201):
-                            status.update(label="❌ 마지막 영상 업로드 실패", state="error")
-                            st.error(res.text)
-                            st.stop() # 업로드 실패하면 분석으로 넘어가지 않음
-
-                        status.write("✅ 답변 저장 완료")
-
-                        # 2. 세션 분석 요청 (영상 업로드 성공 후 실행)
-                        session_id = st.session_state.interview_session_id
+        # 버튼 텍스트 결정 (마지막 질문 여부)
+        is_last_question = (idx == len(questions) - 1)
+        btn_label = "🏁 면접 종료 및 결과 분석" if is_last_question else "➡ 제출하고 다음 질문으로 이동"
+        
+        if st.button(btn_label, type="primary", use_container_width=True):
+            with st.spinner("답변을 업로드 중입니다..."):
+                try:
+                    # 합쳐진(Muxed) 파일 업로드
+                    with open(st.session_state.video_path, "rb") as f:
+                        files = {"file": ("answer.mp4", f, "video/mp4")}
+                        data = {
+                            "question_id": str(current_q["question_id"]),
+                            "has_audio": "true", # 이제 진짜 오디오 있음
+                            "fps": "30",
+                            "source": "webrtc"
+                        }
                         
-                        status.write("🧠 AI가 면접 내용을 분석 중입니다...")
-                        
-                        analyze_res = requests.post(
-                            f"{API_BASE}/api/v1/analysis/session/{session_id}",
+                        res = requests.post(
+                            f"{API_BASE}/api/v1/answer/upload",
                             headers=headers,
-                            timeout=10 # 분석 트리거만 하고 빠져나옴 (백엔드 비동기 처리에 따라 다름)
+                            files=files,
+                            data=data
                         )
 
-                        if analyze_res.status_code == 200:
-                            status.update(label="🚀 분석 완료! 결과 페이지로 이동합니다.", state="complete")
+                    if res.status_code in (200, 201):
+                        st.toast("답변 저장 성공!", icon="💾")
+                        
+                        # 마지막 질문이면 리포트 분석 요청
+                        if is_last_question:
+                            st.info("종합 분석을 요청합니다...")
+                            session_id = st.session_state.interview_session_id
+                            requests.post(
+                                f"{API_BASE}/api/v1/analysis/session/{session_id}",
+                                headers=headers,
+                                timeout=5 # Timeout 짧게 줘서 바로 넘어감
+                            )
+                            st.success("분석 시작! 리포트 페이지로 이동합니다.")
                             time.sleep(1)
                             st.switch_page("pages/6_📊_리포트.py")
+                        
+                        # 중간 질문이면 다음 질문으로 (UI 리셋은 위쪽 로직에서 처리됨)
                         else:
-                            status.update(label="⚠️ 분석 요청 실패", state="error")
-                            st.error(f"분석 요청 실패: {analyze_res.text}")
-                            # 실패해도 리포트 페이지로 이동할지, 머무를지 선택 (여기선 머무름)
+                            # 녹화 상태 초기화하고 다음 인덱스로
+                            st.session_state.recording_done = False
+                            st.session_state.video_path = None
+                            st.session_state.current_question_idx += 1
+                            st.rerun()
+                            
+                    else:
+                        st.error(f"업로드 실패: {res.text}")
 
-                    except Exception as e:
-                        status.update(label="⚠️ 시스템 오류", state="error")
-                        st.error(f"오류 발생: {e}")
+                except Exception as e:
+                    st.error(f"오류 발생: {e}")
+# ==============================================================================
 
 else:
     # -----------------------------
