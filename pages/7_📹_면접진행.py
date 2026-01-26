@@ -5,8 +5,6 @@ from streamlit_webrtc import webrtc_streamer, WebRtcMode
 import aiortc
 import requests
 import time
-import threading # [필수 추가] 쓰레딩 모듈
-import queue     # [필수 추가] 큐 모듈
 from app.utils.camera_utils import FaceGuideTransformer
 
 # -----------------------------
@@ -67,12 +65,6 @@ if "video_path" not in st.session_state:
     st.session_state.video_path = None
 if "audio_path" not in st.session_state:
     st.session_state.audio_path = None
-if "video_frames" not in st.session_state:
-    st.session_state.video_frames = []
-if "audio_frames" not in st.session_state:
-    st.session_state.audio_frames = []
-
-
 
 # ==============================================================================
 # 4. [면접 시작 전] 이력서 선택 및 세션 생성 화면
@@ -209,63 +201,14 @@ if st.session_state.interview_session_id is None:
 
     st.stop() # 면접 시작 전에는 아래 코드를 실행하지 않음
 
-# ==============================================================================
-# 백그라운드 녹화용 쓰레드 클래스 정의 (CPU 점유율 최적화)
-# 별도의 thread를 사용해서 백그라운드에서 녹화
-# 버튼 클릭 가능한지 test 요구.
-# (by ddu, Gemini 3 Pro)
-# ==============================================================================
-class RecorderThread(threading.Thread):
-    def __init__(self, webrtc_ctx):
-        super().__init__()
-        self.webrtc_ctx = webrtc_ctx
-        self.running = True
-        self.video_frames = []
-        self.audio_frames = []
-
-    def run(self):
-        while self.running:
-            # [수정] WebRTC 수신기가 없으면 대기
-            if not self.webrtc_ctx.video_receiver:
-                time.sleep(0.1)
-                continue
-
-            # 비디오 수집
-            try:
-                # 타임아웃을 줘서 블로킹 방지
-                v_frame = self.webrtc_ctx.video_receiver.get_frame(timeout=0.01)
-                if v_frame:
-                    self.video_frames.append(v_frame)
-            except queue.Empty:
-                pass
-            
-            # 오디오 수집
-            if self.webrtc_ctx.audio_receiver:
-                try:
-                    a_frame = self.webrtc_ctx.audio_receiver.get_frame(timeout=0.01)
-                    if a_frame:
-                        self.audio_frames.append(a_frame)
-                except queue.Empty:
-                    pass
-
-            # [핵심] CPU 과부하 방지를 위한 미세 대기 (약 30~60fps 수준 유지)
-            time.sleep(0.01)
-
-    def stop(self):
-        self.running = False
 
 # ==============================================================================
 # 5. [면접 진행] 질문 표시, AI 면접관(TTS), 답변 녹화
 # ==============================================================================
 if st.session_state.questions:
-    questions = st.session_state.questions
+    questions = st.session_state.get('questions', [])
     idx = st.session_state.current_question_idx
-else:
-    st.warning("질문 목록이 없습니다.")
-    st.stop()
-
-if idx < len(questions):
-    current_q = questions[idx]
+    current_q = st.session_state.questions[idx]
     q_id = current_q['question_id']
     
     # ---------------------------------------------------------
@@ -379,7 +322,7 @@ if idx < len(questions):
             key=f"user_record_{idx}_{st.session_state.recording_active}", # 상태 변화 시 재렌더링
             mode=WebRtcMode.SENDRECV,
             video_processor_factory=FaceGuideTransformer,
-            media_stream_constraints={"video": True, "audio": True},
+            media_stream_constraints={"video": True, "audio": False},
             rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
             # recording_active가 True일 때만 recorder 연결
             in_recorder_factory=recorder_factory if st.session_state.recording_active else None,
@@ -397,16 +340,14 @@ if idx < len(questions):
             if os.path.exists(target_path):
                 st.video(target_path)
 
-            if st.button("🔄 다시 녹화하기", use_container_width=True):
-                st.session_state.recording_done = False
-                if os.path.exists(target_path): os.remove(target_path) # 기존 파일 삭제
-                st.rerun()
-
         elif st.session_state.recording_active:
             st.error("🔴 녹화 중... 답변을 마친 후 종료 버튼을 눌러주세요.")
             if st.button("⏹️ 녹화 종료", type="primary", use_container_width=True):
-                st.session_state.recording_active = False
-                st.session_state.recording_done = True
+                # 파일 인코더가 헤더를 안전하게 쓸 시간을 줌 (에러 방지 핵심)
+                with st.spinner("녹화를 안전하게 마치는 중..."):
+                    time.sleep(1.5) 
+                    st.session_state.recording_active = False
+                    st.session_state.recording_done = True
                 st.rerun()
 
         else:
@@ -417,8 +358,6 @@ if idx < len(questions):
             else:
                 st.info("카메라 확인 중... (Allow 버튼을 눌러주세요)")
             
-            
-
     # ==========================
     # [하단] 제출 버튼 
     # ==========================
