@@ -30,17 +30,19 @@ def save_muxed_video(video_frames, audio_frames):
     # 임시 파일 생성
     tfile = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
     output_path = tfile.name
+    container = av.open(output_path, mode="w")
 
     try:
         container = av.open(output_path, mode="w")
 
         # 1. 비디오 스트림 추가
-        video_stream = container.add_stream("h264", rate=30)
+        fps = 30
+        video_stream = container.add_stream("h264", rate=fps)
         first_frame = video_frames[0]
         video_stream.width = first_frame.width
         video_stream.height = first_frame.height
         video_stream.pix_fmt = "yuv420p"
-        video_stream.time_base = av.Fraction(1, fps) # 타임베이스 명시
+        video_stream.time_base = av.Fraction(1, fps) 
 
         # 2. 오디오 스트림 추가 (오디오 프레임이 있는 경우)
         audio_stream = None
@@ -58,11 +60,13 @@ def save_muxed_video(video_frames, audio_frames):
                 container.mux(packet)
                 
         # 비디오 버퍼 비우기
-        for packet in video_stream.encode():
+        packets = video_stream.encode(None) 
+        for packet in packets:
             container.mux(packet)
 
         # 4. 오디오 인코딩 및 Muxing
         if audio_stream:
+            audio_stream = container.add_stream("aac", rate=48000)
             for i, frame in enumerate(audio_frames):
                 # 오디오 프레임 pts도 비디오와 동기화가 필요하지만, 
                 # 단순 저장 시에는 순차 부여가 안전함
@@ -72,11 +76,15 @@ def save_muxed_video(video_frames, audio_frames):
                         container.mux(packet)
                 except:
                     continue
-            for packet in audio_stream.encode():
-                container.mux(packet)
 
+            # [중요] 오디오 버퍼 비우기 (Flush)
+            packets = audio_stream.encode(None)
+            for packet in packets:
+                container.mux(packet)
+        
+    finally:    
+        # 에러가 나더라도 컨테이너는 닫아야 파일 잠금이 해제됨
         container.close()
-        return output_path
-    except Exception as e:
-        print(f"Muxing failed: {e}")
-        return None
+    
+    return output_path
+    

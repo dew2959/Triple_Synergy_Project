@@ -201,13 +201,7 @@ if st.session_state.interview_session_id is None:
     st.stop() # 면접 시작 전에는 아래 코드를 실행하지 않음
 
 # ==============================================================================
-# 5. [면접 진행] 질문 표시, AI 면접관(TTS), 답변 녹화
-# ==============================================================================
-questions = st.session_state.questions
-idx = st.session_state.current_question_idx
-
-# ==============================================================================
-# 백그라운드 녹화용 쓰레드 클래스 정의
+# 백그라운드 녹화용 쓰레드 클래스 정의 (CPU 점유율 최적화)
 # 별도의 thread를 사용해서 백그라운드에서 녹화
 # 버튼 클릭 가능한지 test 요구.
 # (by ddu, Gemini 3 Pro)
@@ -222,26 +216,44 @@ class RecorderThread(threading.Thread):
 
     def run(self):
         while self.running:
-            if self.webrtc_ctx.video_receiver:
-                try:
-                    # 타임아웃을 줘서 블로킹 방지
-                    v_frame = self.webrtc_ctx.video_receiver.get_frame(timeout=0.05)
-                    if v_frame:
-                        self.video_frames.append(v_frame)
-                except queue.Empty:
-                    pass
+            # [수정] WebRTC 수신기가 없으면 대기
+            if not self.webrtc_ctx.video_receiver:
+                time.sleep(0.1)
+                continue
+
+            # 비디오 수집
+            try:
+                # 타임아웃을 줘서 블로킹 방지
+                v_frame = self.webrtc_ctx.video_receiver.get_frame(timeout=0.01)
+                if v_frame:
+                    self.video_frames.append(v_frame)
+            except queue.Empty:
+                pass
             
+            # 오디오 수집
             if self.webrtc_ctx.audio_receiver:
                 try:
-                    a_frame = self.webrtc_ctx.audio_receiver.get_frame(timeout=0.05)
+                    a_frame = self.webrtc_ctx.audio_receiver.get_frame(timeout=0.01)
                     if a_frame:
                         self.audio_frames.append(a_frame)
                 except queue.Empty:
                     pass
 
+            # [핵심] CPU 과부하 방지를 위한 미세 대기 (약 30~60fps 수준 유지)
+            time.sleep(0.01)
+
     def stop(self):
         self.running = False
+
 # ==============================================================================
+# 5. [면접 진행] 질문 표시, AI 면접관(TTS), 답변 녹화
+# ==============================================================================
+if st.session_state.questions:
+    questions = st.session_state.questions
+    idx = st.session_state.current_question_idx
+else:
+    st.warning("질문 목록이 없습니다.")
+    st.stop()
 
 if idx < len(questions):
     current_q = questions[idx]
@@ -351,6 +363,7 @@ if idx < len(questions):
         st.markdown("### 🎙️ 답변 녹화")
 
         # 1. WebRTC 스트리머
+        # key를 idx에 따라 변경하여 질문 바뀔 때마다 컴포넌트 리셋
         webrtc_ctx = webrtc_streamer(
             key=f"user_record_{idx}", # 키가 바뀌면 컴포넌트가 리셋되므로 질문마다 바뀜
             mode=WebRtcMode.SENDRECV,
@@ -376,8 +389,8 @@ if idx < len(questions):
                 # 상태 초기화
                 st.session_state.recording_done = False
                 st.session_state.recording_active = False
-                st.session_state.video_frames = []
-                st.session_state.audio_frames = []
+                #st.session_state.video_frames = []
+                #st.session_state.audio_frames = []
                 st.session_state.video_path = None
                 
                 # 인덱스 증가
@@ -388,18 +401,21 @@ if idx < len(questions):
 
         # B. 녹화 중 상태
         elif st.session_state.recording_active:
-            st.warning("🔴 녹화 중입니다... (카메라를 응시하세요)")
+            st.warning("🔴 녹화 중입니다... 카메라를 응시하세요.")
             
             # 쓰레드가 없으면 시작 (최초 1회)
-            if "recorder_thread" not in st.session_state or not st.session_state.recorder_thread.is_alive():
+            if "recorder_thread" not in st.session_state:
                 if webrtc_ctx.state.playing:
                     recorder = RecorderThread(webrtc_ctx)
                     recorder.start()
                     st.session_state.recorder_thread = recorder
+                else:
+                    st.info("카메라 연결 대기 중...")
             
             # 녹화 종료 버튼
             if st.button("⏹️ 녹화 종료", type="primary", use_container_width=True):
-                st.session_state.recording_active = False
+    
+                #st.session_state.recording_active = False
                 
                 # 쓰레드 정지 및 데이터 회수
                 if "recorder_thread" in st.session_state:
@@ -411,24 +427,26 @@ if idx < len(questions):
                     v_frames = recorder.video_frames
                     a_frames = recorder.audio_frames  
                     
-                    # 수집된 프레임 세션으로 이동
-                    # st.session_state.video_frames = recorder.video_frames
-                    # st.session_state.audio_frames = recorder.audio_frames
-                    
                     # 쓰레드 제거
                     del st.session_state.recorder_thread
+                else:
+                    v_frames = []
+                    a_frames = []               
 
-                    # [중요] 즉시 처리 후 상태 업데이트
+                    # [영상 저장 시도 
                     if v_frames:
-                        with st.spinner("영상을 병합하여 저장 중입니다..."):
+                        with st.spinner("영상을 저장하고 있습니다. 잠시만 기다려주세요..."):
+                            # 저장 함수 호출
                             merged_path = save_muxed_video(v_frames, a_frames)
                             if merged_path:
+                                # 성공 시 상태 변경
                                 st.session_state.video_path = merged_path
-                                st.session_state.recording_done = True      # 완료 플래그 ON
-                                st.session_state.recording_active = False    # 활성 플래그 OFF
+                                st.session_state.recording_done = True      # 완료 화면으로 전환
+                                st.session_state.recording_active = False    # 녹화 상태 해제
                                 st.rerun() # 상태 반영을 위해 재실행
                             else:
-                                st.error("영상 저장에 실패했습니다.")
+                                st.error("영상 저장 실패! (파일 생성 오류)")
+                    # 녹화 상태 유지 (재시도 가능하게)
                     else:
                         st.error("녹화된 프레임이 없습니다.")
                         st.session_state.recording_active = False
@@ -456,7 +474,11 @@ if idx < len(questions):
         is_last_question = (idx == len(questions) - 1)
         btn_label = "🏁 면접 종료 및 결과 분석" if is_last_question else "➡ 제출하고 다음 질문으로 이동"
         
-        if st.button(btn_label, type="primary", use_container_width=True):
+        # 버튼 하나로 통일 (위쪽 '다음 질문' 버튼은 UI 흐름상 숨기거나, 
+        # 아니면 여기서 업로드를 수행하고 넘기는 방식 사용)
+        # 여기서는 중복을 막기 위해 [상태 1]에서는 '저장 완료'만 띄우고
+        # 실제 이동은 이 하단 버튼에서 처리하는 것이 깔끔함.
+        if st.button(btn_label, type="primary", use_container_width=True, key="submit_btn"):
             with st.spinner("답변을 업로드 중입니다..."):
                 try:
                     # 합쳐진(Muxed) 파일 업로드
@@ -470,7 +492,7 @@ if idx < len(questions):
                         }
                         
                         res = requests.post(
-                            f"{API_BASE}/api/v1/answer/upload",
+                            f"{API_BASE}/upload", 
                             headers=headers,
                             files=files,
                             data=data
@@ -494,7 +516,7 @@ if idx < len(questions):
                         
                         # 중간 질문이면 다음 질문으로 (UI 리셋은 위쪽 로직에서 처리됨)
                         else:
-                            # 녹화 상태 초기화하고 다음 인덱스로
+                            # 녹화 상태 초기화하고 다음 질문으로 이동 
                             st.session_state.recording_done = False
                             st.session_state.video_path = None
                             st.session_state.current_question_idx += 1
@@ -504,7 +526,7 @@ if idx < len(questions):
                         st.error(f"업로드 실패: {res.text}")
 
                 except Exception as e:
-                    st.error(f"오류 발생: {e}")
+                    st.error(f"전송 오류: {e}")
 # ==============================================================================
 
 else:
