@@ -207,8 +207,13 @@ if st.session_state.interview_session_id is None:
 # ==============================================================================
 if st.session_state.questions:
     questions = st.session_state.get('questions', [])
-    idx = st.session_state.current_question_idx
-    current_q = st.session_state.questions[idx]
+    idx = st.session_state.get("current_question_idx", 0)
+
+    if not questions or idx >= len(questions):
+        st.warning("질문 상태가 초기화되었습니다. 면접을 다시 시작해주세요.")
+        st.stop()
+
+    current_q = questions[idx]
     q_id = current_q['question_id']
     
     # ---------------------------------------------------------
@@ -315,7 +320,8 @@ if st.session_state.questions:
 
         # MediaRecorder 팩토리 함수
         def recorder_factory():
-            return aiortc.contrib.media.MediaRecorder(target_path)
+            safe_path = str(Path(target_path).resolve())
+            return aiortc.contrib.media.MediaRecorder(safe_path)
 
         # 1. WebRTC 스트리머
         webrtc_ctx = webrtc_streamer(
@@ -351,7 +357,7 @@ if st.session_state.questions:
             if st.button("⏹️ 녹화 종료", type="primary", use_container_width=True):
                 # 파일 인코더가 헤더를 안전하게 쓸 시간을 줌 (에러 방지 핵심)
                 with st.spinner("녹화를 안전하게 마치는 중..."):
-                    time.sleep(1.5) 
+                    time.sleep(2.0) 
                     st.session_state.recording_active = False
                     st.session_state.recording_done = True
                 st.rerun()
@@ -375,6 +381,11 @@ if st.session_state.questions:
         if st.button(btn_label, type="primary", use_container_width=True):
             with st.spinner("서버로 답변 영상 업로드 중..."):
                 try:
+                    if not os.path.exists(target_path):
+                        st.error("녹화 파일이 생성되지 않았습니다. 다시 녹화해주세요.")
+                        st.session_state.recording_done = False
+                        st.stop()
+
                     with open(target_path, "rb") as f:
                         files = {"file": (os.path.basename(target_path), f, "video/mp4")}
                         data = {
