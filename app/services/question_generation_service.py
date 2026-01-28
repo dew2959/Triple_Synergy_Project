@@ -30,7 +30,7 @@ class QuestionGenerationService:
             if resume:
                 # 이력서 텍스트 추출 (DB에 content 컬럼이 있다고 가정하거나, 파일에서 읽어야 함)
                 # 여기서는 resume 테이블에 'content'가 없으면 job_title + company로 대체한다고 가정
-                resume_text = resume.get('content') or f"직무: {resume.get('job_title')}, 목표회사: {resume.get('target_company')}"
+                resume_text = f"직무: {resume.get('job_title')}, 목표회사: {resume.get('target_company')}, 학력: {resume.get('education')}, 경력: {resume.get('experience')}, 프로젝트: {resume.get('projects')}, 수상내역: {resume.get('award')}, 자격증: {resume.get('certifications')}, 업무 스킬: {resume.get('skills')}"
                 job_role = resume.get('job_title', 'General')
 
                 # 엔진 호출
