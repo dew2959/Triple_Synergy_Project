@@ -164,23 +164,41 @@ class AnalysisService:
                     metrics = voice_output.get("metrics", {})
                     avg_wpm = metrics.get("avg_wpm") or 0
                     silence_count = metrics.get("silence_count", 0)
+                    duration = metrics.get("duration") or 1  # duration이 없으면 1로 설정 (나누기 오류 방지)
 
+                    # 1. 점수 체계 세분화 (기본 점수에서 시작하여 항목별 감점)
                     v_score = 100
                     bad_points = []
                     good_points = []
 
-                    if avg_wpm < 80:
-                        v_score -= 10
-                        bad_points.append("말이 느립니다.")
-                    elif avg_wpm > 180:
-                        v_score -= 10
-                        bad_points.append("말이 빠릅니다.")
-                    else:
-                        good_points.append("속도가 적절합니다.")
+                    # 2. 속도(WPM) 분석: 면접 최적 속도는 110~150 WPM입니다.
+                    if 90 <= avg_wpm <= 130:
+                        good_points.append("말하기 속도가 매우 안정적입니다.")
+                    elif 60 <= avg_wpm < 90:
+                        v_score -= 5
+                        bad_points.append("말이 다소 느린 편입니다. 조금 더 활기차게 전달해 보세요.")
+                    elif avg_wpm < 60:
+                        v_score -= 15 # 감점 폭 확대
+                        bad_points.append("말이 너무 느려 지루한 인상을 줄 수 있습니다.")
+                    elif 130 < avg_wpm <= 160:
+                        v_score -= 5
+                        bad_points.append("말이 다소 빠릅니다. 중요한 부분에서 호흡을 가다듬어 주세요.")
+                    else: # 160 초과
+                        v_score -= 15
+                        bad_points.append("말이 너무 빨라 내용 전달력이 떨어집니다.")
 
-                    if silence_count > 5:
+                    # 3. 침묵(Silence) 분석: 시간 대비 비율로 계산 (중요!)
+                    # 면접에서는 1분(60초)당 3~4번의 적절한 멈춤은 정상입니다.
+                    # 하지만 60초 기준 5번 이상 혹은 전체 시간의 20% 이상이 침묵이면 감점합니다.
+                    silence_per_minute = (silence_count / duration) * 60
+                    if silence_per_minute > 8: # 1분에 8회 이상 멈춤 (잦은 끊김)
+                        v_score -= 20
+                        bad_points.append("답변 중 흐름이 자주 끊깁니다. 문장을 끝까지 맺는 연습이 필요합니다.")
+                    elif silence_per_minute > 5:
                         v_score -= 10
-                        bad_points.append("침묵이 잦습니다.")
+                        bad_points.append("말 사이의 공백이 잦아 답변이 다소 불안정해 보입니다.")
+                    elif 1 <= silence_per_minute <= 4:
+                        good_points.append("적절한 휴지(Pause)를 활용하여 전달력을 높였습니다.")
 
                     voice_payload = VoiceDBPayload(
                         answer_id=answer_id,
@@ -192,11 +210,12 @@ class AnalysisService:
                         avg_pitch=float(metrics.get("avg_pitch", 0.0)),
                         max_pitch=0.0,
                         silence_timeline_json=[],
-                        feedback=" ".join(bad_points) or "훌륭합니다.",
+                        feedback=" ".join(bad_points) if bad_points else "음성 전달력이 매우 훌륭합니다.",
                         good_points_json=good_points,
                         bad_points_json=bad_points,
                     )
-
+                    
+                    # voice_payload 생성 부분 (v_score와 feedback_text 사용)
                     a_data = voice_payload.model_dump()
                     a_data["silence_timeline_json"] = json.dumps(a_data["silence_timeline_json"])
                     a_data["good_points_json"] = json.dumps(a_data["good_points_json"])
