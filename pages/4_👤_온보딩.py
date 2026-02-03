@@ -70,13 +70,29 @@ if st.session_state.mode == "list":
         else:
             for res in resumes:
                 with st.container(border=True):
-                    col1, col2, col3 = st.columns([4, 2, 1])
+                    col1, col2, col3 = st.columns([4, 1, 1])
                     with col1:
                         st.markdown(f"**[{res.get('job_title')}]** {res.get('target_company', '일반 이력서')}")
                         st.caption(f"최종 수정일: {res.get('updated_at', '정보 없음')}")
-                    with col3:
+                    with col2:
                         if st.button("상세보기", key=f"btn_view_{res['resume_id']}"):
                             handle_view_detail(res)
+                    with col3:
+                        # 삭제 확인을 위한 팝오버(Popover) 적용
+                        with st.popover("🗑️ 삭제", use_container_width=True):
+                            st.write("정말 이 이력서를 삭제하시겠습니까?")
+                            if st.button("확인: 삭제합니다", key=f"confirm_del_{res['resume_id']}", type="primary"):
+                                try:
+                                    # 삭제 API 호출
+                                    success = resume_api.delete_resume(st.session_state.token, res['resume_id'])
+                                    if success:
+                                        st.success("삭제 완료!")
+                                        st.rerun()
+                                    else:
+                                        st.error("삭제 실패")
+                                except Exception as e:
+                                    st.error(f"오류 발생: {e}")
+
     except Exception as e:
         st.error(f"이력서를 불러오는 중 오류가 발생했습니다: {e}")
 

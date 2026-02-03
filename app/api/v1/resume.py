@@ -48,3 +48,25 @@ def create_resume_manual(
         raise HTTPException(status_code=500, detail="이력서 저장에 실패했습니다.")
 
     return new_resume
+
+@router.delete("/{resume_id}")
+def delete_resume(
+    resume_id: int,
+    current_user: dict = Depends(get_current_user),
+    conn: connection = Depends(get_db_conn)
+):
+    """
+    [이력서 삭제]
+    해당 ID의 이력서를 DB에서 삭제합니다. 
+    본인의 이력서인지 확인하는 로직이 포함되어야 안전합니다.
+    """
+    # 1. 삭제 실행 (성공 여부를 반환받음)
+    success = resume_repo.delete(conn, resume_id=resume_id, user_id=current_user['user_id'])
+    
+    # 2. 트랜잭션 확정
+    conn.commit()
+
+    if not success:
+        raise HTTPException(status_code=404, detail="이력서를 찾을 수 없거나 삭제 권한이 없습니다.")
+
+    return {"message": "Successfully deleted", "resume_id": resume_id}
