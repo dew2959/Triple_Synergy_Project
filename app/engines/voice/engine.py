@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import os
 
+import re
 import numpy as np
 import librosa
 
@@ -157,6 +158,95 @@ def _compute_avg_pitch_hz(
     # 평균 f0를 float로 안전 변환해서 반환
     return _safe_float(np.mean(voiced))
 
+### pitch 추가 함수 ###
+
+def _compute_pitch_stats_hz(y, sr, fmin_hz: float, fmax_hz: float) -> Dict[str, Optional[float]]:
+    """
+    pyin 기반 pitch 통계(std/range/max). 무성구간은 NaN이라 제거 후 통계.
+    """
+    import librosa
+    f0, voiced_flag, voiced_probs = librosa.pyin(
+        y,
+        fmin=fmin_hz,
+        fmax=fmax_hz,
+        sr=sr,
+    )
+    if f0 is None or len(f0) == 0:
+        return {"avg_pitch": None, "max_pitch": None, "pitch_std": None, "pitch_range": None, "voiced_ratio": 0.0}
+
+    voiced = f0[~np.isnan(f0)]
+    if len(voiced) == 0:
+        return {"avg_pitch": None, "max_pitch": None, "pitch_std": None, "pitch_range": None, "voiced_ratio": 0.0}
+
+    avg = float(np.mean(voiced))
+    mx = float(np.max(voiced))
+    std = float(np.std(voiced))
+
+    p95 = float(np.percentile(voiced, 95))
+    p5  = float(np.percentile(voiced, 5))
+    prange = float(p95 - p5)
+
+    voiced_ratio = float(len(voiced) / len(f0))
+    return {"avg_pitch": avg, "max_pitch": mx, "pitch_std": std, "pitch_range": prange, "voiced_ratio": voiced_ratio}
+
+
+### CPS 추가 내용 ####
+
+def _count_chars(text: Optional[str]) -> int:
+    """한국어/영어 섞여도 안정적으로: 공백 제거 + 기본적인 기호 제거."""
+    if not text:
+        return 0
+    s = re.sub(r"\s+", "", text)
+    # 한글/영문/숫자만 남기고 나머지 제거 (기호/이모지 등)
+    s = re.sub(r"[^0-9A-Za-z가-힣]", "", s)
+    return len(s)
+
+def _compute_avg_cps_cpm(stt_text: Optional[str], duration_sec: float) -> Tuple[Optional[float], Optional[float], Optional[int]]:
+    """전체 텍스트 기준 평균 CPS/CPM + char_count"""
+    if not stt_text or duration_sec <= 0:
+        return None, None, None
+    char_count = _count_chars(stt_text)
+    if char_count <= 0:
+        return None, None, 0
+    avg_cps = char_count / duration_sec
+    avg_cpm = avg_cps * 60.0
+    return float(avg_cps), float(avg_cpm), int(char_count)
+
+def _compute_segment_cps_stats(stt_segments: Optional[List[Dict[str, Any]]]) -> Dict[str, Optional[float]]:
+    """
+    세그먼트 단위 속도 변동 측정용.
+    max 대신 p95를 추천. (노이즈에 덜 민감)
+    segments 원소는 {"text":..., "start":..., "end":...} 형태를 기대.
+    """
+    if not stt_segments:
+        return {"p95_cps": None, "max_cps": None}
+
+    cps_list: List[float] = []
+    for seg in stt_segments:
+        text = seg.get("text") or ""
+        start = seg.get("start")
+        end = seg.get("end")
+
+        # start/end가 없거나 이상하면 스킵
+        if start is None or end is None:
+            continue
+        dur = float(end) - float(start)
+        if dur <= 0.15:  # 너무 짧은 조각은 노이즈라 제외(학생 프로젝트용 안전장치)
+            continue
+
+        chars = _count_chars(text)
+        if chars <= 0:
+            continue
+
+        cps_list.append(chars / dur)
+
+    if not cps_list:
+        return {"p95_cps": None, "max_cps": None}
+
+    arr = np.array(cps_list, dtype=float)
+    p95 = float(np.percentile(arr, 95))
+    mx = float(np.max(arr))
+    return {"p95_cps": p95, "max_cps": mx}
 
 def _compute_avg_wpm(stt_text: Optional[str], duration_sec: float) -> Optional[int]:
     """
@@ -328,10 +418,10 @@ def run_voice(
         #   * 말소리가 충분하면 avg_pitch는 float(Hz)
         #   * 무성/추정실패면 None
         # ----------------------------------------------------
-        avg_pitch = _compute_avg_pitch_hz(
-            y, sr,
-            fmin_hz=fmin_hz,
-            fmax_hz=fmax_hz,
+        pitch_stats = _compute_pitch_stats_hz(
+            y, sr, 
+            fmin_hz=fmin_hz, 
+            fmax_hz=fmax_hz
         )
 
         # ----------------------------------------------------
@@ -356,6 +446,19 @@ def run_voice(
         avg_wpm = _compute_avg_wpm(stt_text, duration_sec)
         max_wpm = _compute_max_wpm(stt_segments)
 
+
+        # ✅ CPM/CPS 추가
+        avg_cps, avg_cpm, char_count = _compute_avg_cps_cpm(stt_text, duration_sec)
+
+
+        # ✅ segment 기반 p95/max cps + pace_ratio
+        seg_stats = _compute_segment_cps_stats(stt_segments)
+        p95_cps = seg_stats["p95_cps"]
+        max_cps = seg_stats["max_cps"]
+        pace_ratio = None
+        if avg_cps and p95_cps:
+            pace_ratio = float(p95_cps / avg_cps)
+
         # ----------------------------------------------------
         # 6) metrics 구성 (DB 매핑 우선)
         #
@@ -365,10 +468,28 @@ def run_voice(
         # - avg_pitch: float or None
         # ----------------------------------------------------
         metrics: Dict[str, Any] = {
+            # 기존
             "avg_wpm": avg_wpm,
             "max_wpm": max_wpm,
             "silence_count": int(silence_count),
-            "avg_pitch": avg_pitch,
+
+            # pitch (기존 avg_pitch 유지 + 확장)
+            "avg_pitch": pitch_stats.get("avg_pitch"),
+            "max_pitch": pitch_stats.get("max_pitch"),
+            "pitch_std": pitch_stats.get("pitch_std"),
+            "pitch_range": pitch_stats.get("pitch_range"),
+            "voiced_ratio": pitch_stats.get("voiced_ratio"),
+
+            # ✅ 새 속도 raw metrics
+            "duration_sec": duration_sec,
+            "char_count": char_count,
+            "avg_cps": avg_cps,
+            "avg_cpm": avg_cpm,
+
+            # ✅ 변동성/급발진 감지용
+            "p95_cps": p95_cps,
+            "max_cps": max_cps,
+            "pace_ratio": pace_ratio,
         }
 
         # ----------------------------------------------------
