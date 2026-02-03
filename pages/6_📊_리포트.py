@@ -1,6 +1,7 @@
 import streamlit as st
 from utils.api_client import session_api, report_api
 from datetime import datetime
+import pandas as pd
 
 # 1. 로그인 체크
 if not st.session_state.get('token'):
@@ -179,9 +180,51 @@ if full_data:
                     if ans.get('voice'):
                         res = ans['voice']
                         st.write(f"**점수:** {res['score']}점")
-                        st.write(f"**발화 속도:** {res['avg_wpm']} WPM")
-                        st.write(f"**침묵 횟수:** {res['silence_count']}회")
+
+                        metrics = res.get('metrics', res)
+
+                        # 1. 기존 메트릭 표시
+                        c1, c2, c3 = st.columns(3)
+
+                        # .get()을 사용해 값이 없어도 에러가 나지 않도록 방어
+                        # DB에 avg_cps 컬럼이 없다면 0.0으로 나올 수 있습니다.
+                        avg_cps = metrics.get('avg_cps', metrics.get('avg_wpm', 0) / 60 * 3)
+
+                        silence_count = metrics.get('silence_count', 0)
+                        duration_sec = metrics.get('duration_sec', metrics.get('duration', 0))
+                        
+                        c1.metric("평균 속도", f"{metrics['avg_cps']:.1f} CPS", help="초당 말한 글자 수입니다.")
+                        c2.metric("침묵 횟수", f"{metrics['silence_count']}회")
+                        c3.metric("전체 길이", f"{metrics['duration_sec']:.1f}초")
+
+                        st.divider()
+
+                        # 2. 🌊 말하기 속도 변화 그래프 (NEW!)
+                        charts = res.get('charts', res.get('charts_json', {}))
+
+                        if charts and 'speed_flow' in charts:
+                            st.markdown("##### 📈 말하기 속도 흐름")
+                            
+                            speed_data = res['charts']['speed_flow']
+                            
+                            if speed_data:
+                                # 데이터프레임으로 변환
+                                df_speed = pd.DataFrame(speed_data)
+                                
+                                # 차트 그리기 (Altair나 Streamlit native chart 사용)
+                                # X축: time, Y축: cps
+                                st.line_chart(df_speed, x="time", y="cps", color="#FF4B4B")
+                                
+                                st.caption("""
+                                - **가로축(X):** 답변 시간 (초)
+                                - **세로축(Y):** 순간 말하기 속도 (CPS)
+                                - 그래프가 **너무 높게 치솟으면** 급하게 말한 구간, **바닥에 닿으면** 침묵하거나 버벅인 구간입니다.
+                                """)
+                            else:
+                                st.info("그래프를 그릴 충분한 데이터가 없습니다.")
+                                
                         st.info(res['feedback'])
+
                     else:
                         st.caption("분석 결과가 없습니다.")
 

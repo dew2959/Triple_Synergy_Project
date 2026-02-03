@@ -34,17 +34,30 @@ class VoiceDBPayload(BaseModel):
     answer_voice_analysis 테이블 저장용
     """
     answer_id: int
-
     score: int
+    feedback: str
 
     avg_wpm: int
     max_wpm: int
-
     silence_count: int
     avg_silence_length: float
 
+    duration_sec: float = 0.0
+
     avg_pitch: float
     max_pitch: float
+    pitch_std: float = 0.0
+    voiced_ratio: float = 0.0
+    
+    avg_cps: float = 0.0
+    avg_cpm: float = 0.0
+    
+    burst_ratio: float = 0.0
+    high_speed_share: float = 0.0
+    cv_cps: float = 0.0
+    
+    # 4. [추가] 차트 데이터
+    charts_json: Dict[str, Any] = Field(default_factory=dict)
 
     silence_timeline_json: List[Dict[str, Any]] = Field(
         default_factory=list,
