@@ -47,6 +47,23 @@ class ResumeAPI(APIClient):
         if res.status_code in (200, 201):
             return res.json()
         raise Exception(res.text)
+    
+    def delete_resume(self, token: str, resume_id: int):
+        """
+        백엔드 서버에 이력서 삭제 요청을 보냅니다.
+        """
+        import requests
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # prefix가 /api/v1/resume 이므로 경로를 정확히 맞춥니다.
+        url = f"{self.base_url}/api/v1/resume/{resume_id}"
+
+        try:
+            response = requests.delete(url, headers=headers)
+            return response.status_code == 200
+        except Exception as e:
+            print(f"Delete API Error: {e}")
+            return False
 
 
 class SessionAPI(APIClient):

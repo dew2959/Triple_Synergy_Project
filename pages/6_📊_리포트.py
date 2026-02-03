@@ -189,7 +189,14 @@ if full_data:
                 with tab3:
                     if ans.get('content'):
                         res = ans['content']
+
+                        # 1. 실제 STT 텍스트 표시 (피드백 위쪽에 배치)
+                        st.markdown("##### 💬 실제 답변 내용 (STT)")
+                        st.code(ans.get('stt_text', "답변 텍스트를 불러올 수 없습니다."), language=None)
+
+                        st.divider() # 구분선 추가
                         
+                        # 2. 기존 점수 및 피드백 정보
                         if 'score' in res and res['score'] is not None:
                             final_score = res['score']
                         else:
@@ -202,6 +209,7 @@ if full_data:
                         st.write(f"**종합 점수:** {final_score}점")
                         st.write(f"**논리성:** {res.get('logic_score', 0)} / **직무적합도:** {res.get('job_fit_score', 0)} / **시간관리:** {res.get('time_management_score', 0)}")
                         
+                        st.markdown("**AI 피드백**")
                         st.info(res.get('feedback', '피드백이 없습니다.'))
                         
                         if res.get('model_answer'):

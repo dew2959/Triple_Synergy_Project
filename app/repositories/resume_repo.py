@@ -57,13 +57,23 @@ class ResumeRepository:
             )
             return cur.fetchone()
         
+    def delete(self, conn, resume_id: int, user_id: int) -> bool:
+        """
+        실제로 지우지 않고 '삭제됨' 표시만 합니다. (Soft Delete)
+        """
+        with conn.cursor() as cur:
+            # DELETE 대신 UPDATE 사용
+            sql = "UPDATE resumes SET is_deleted = TRUE WHERE resume_id = %s AND user_id = %s"
+            cur.execute(sql, (resume_id, user_id))
+            return cur.rowcount > 0
+        
     def get_all_by_user_id(self, conn, user_id: int):
         """특정 유저의 모든 이력서 조회 (최신순)"""
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(
                 """
                 SELECT * FROM resumes 
-                WHERE user_id = %s 
+                WHERE user_id = %s AND is_deleted = FALSE
                 ORDER BY created_at DESC
                 """,
                 (user_id,)
