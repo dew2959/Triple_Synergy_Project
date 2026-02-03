@@ -193,9 +193,9 @@ if full_data:
                         silence_count = metrics.get('silence_count', 0)
                         duration_sec = metrics.get('duration_sec', metrics.get('duration', 0))
                         
-                        c1.metric("평균 속도", f"{metrics['avg_cps']:.1f} CPS", help="초당 말한 글자 수입니다.")
-                        c2.metric("침묵 횟수", f"{metrics['silence_count']}회")
-                        c3.metric("전체 길이", f"{metrics['duration_sec']:.1f}초")
+                        c1.metric("평균 속도", f"{metrics.get('avg_cps', 0):.1f} CPS")
+                        c2.metric("침묵 횟수", f"{metrics.get('silence_count', 0)}회")
+                        c3.metric("전체 길이", f"{metrics.get('duration_sec', metrics.get('duration', 0)):.1f}초")
 
                         st.divider()
 
