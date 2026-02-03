@@ -50,6 +50,7 @@ class AnswerFullResult(BaseModel):
     question_content: str
     answer_id: int
     video_path: Optional[str]
+    stt_text: Optional[str] = None
     created_at: datetime
     
     # 분석 결과 (아직 분석 안 됐으면 None일 수 있음)

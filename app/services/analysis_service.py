@@ -18,6 +18,7 @@ from app.repositories.content_repo import content_repo
 
 # Services
 from app.services.final_report_service import final_report_service
+from app.utils.chart_utils import calculate_cps_flow
 
 # Schemas
 from app.schemas.visual import VisualDBPayload
@@ -155,6 +156,9 @@ class AnalysisService:
                         pass
                     print(f"⚠️ [STT Save Warning] 텍스트 저장 실패 (계속 진행): {e}")
 
+            # [추가] 1. 차트 데이터 미리 계산 (STT 세그먼트 활용)
+            speed_flow_data = calculate_cps_flow(stt_segments)
+
             voice_output = run_voice(audio_path, stt_text=stt_text, stt_segments=stt_segments)
 
             if voice_output.get("error"):
@@ -164,7 +168,7 @@ class AnalysisService:
                     metrics = voice_output.get("metrics", {})
                     avg_wpm = metrics.get("avg_wpm") or 0
                     silence_count = metrics.get("silence_count", 0)
-                    duration = metrics.get("duration") or 1  # duration이 없으면 1로 설정 (나누기 오류 방지)
+                    duration_sec = metrics.get("duration_sec") or 1  # duration이 없으면 1로 설정 (나누기 오류 방지)
 
                     # 1. 점수 체계 세분화 (기본 점수에서 시작하여 항목별 감점)
                     v_score = 100
@@ -190,7 +194,7 @@ class AnalysisService:
                     # 3. 침묵(Silence) 분석: 시간 대비 비율로 계산 (중요!)
                     # 면접에서는 1분(60초)당 3~4번의 적절한 멈춤은 정상입니다.
                     # 하지만 60초 기준 5번 이상 혹은 전체 시간의 20% 이상이 침묵이면 감점합니다.
-                    silence_per_minute = (silence_count / duration) * 60
+                    silence_per_minute = (silence_count / duration_sec) * 60
                     if silence_per_minute > 8: # 1분에 8회 이상 멈춤 (잦은 끊김)
                         v_score -= 20
                         bad_points.append("답변 중 흐름이 자주 끊깁니다. 문장을 끝까지 맺는 연습이 필요합니다.")
@@ -203,20 +207,51 @@ class AnalysisService:
                     voice_payload = VoiceDBPayload(
                         answer_id=answer_id,
                         score=max(0, v_score),
+                        feedback=" ".join(bad_points) if bad_points else "음성 전달력이 매우 훌륭합니다.",
+                        
+                        # 1. [기존] 속도 및 침묵 (Basic)
                         avg_wpm=int(avg_wpm),
                         max_wpm=int(metrics.get("max_wpm", 0)),
                         silence_count=int(silence_count),
-                        avg_silence_length=0.0,
+                        avg_silence_length=0.0,   # 기존 유지
+                        silence_timeline_json=[], # 기존 유지
+                        
+                        # 2. [추가] 시간 및 상세 속도 (CPS/CPM)
+                        duration_sec=float(metrics.get("duration_sec", 0.0)),
+                        avg_cps=float(metrics.get("avg_cps", 0.0)),
+                        avg_cpm=float(metrics.get("avg_cpm", 0.0)),
+
+                        # 3. [추가] 피치(Pitch) 상세 분석
                         avg_pitch=float(metrics.get("avg_pitch", 0.0)),
-                        max_pitch=0.0,
-                        silence_timeline_json=[],
-                        feedback=" ".join(bad_points) if bad_points else "음성 전달력이 매우 훌륭합니다.",
+                        max_pitch=float(metrics.get("max_pitch", 0.0)),
+                        pitch_std=float(metrics.get("pitch_std", 0.0)),
+                        voiced_ratio=float(metrics.get("voiced_ratio", 0.0)),
+
+                        # 4. [추가] 불안정성(Instability) 지표
+                        burst_ratio=float(metrics.get("burst_ratio", 0.0)),
+                        high_speed_share=float(metrics.get("high_speed_share", 0.0)),
+                        cv_cps=float(metrics.get("cv_cps", 0.0)),
+
+                        # 5. [JSON] 피드백 및 차트 데이터
                         good_points_json=good_points,
                         bad_points_json=bad_points,
+                        
+                        # Service Layer에서 계산한 차트 데이터를 여기에 주입
+                        charts_json={"speed_flow": speed_flow_data}
                     )
                     
                     # voice_payload 생성 부분 (v_score와 feedback_text 사용)
                     a_data = voice_payload.model_dump()
+
+                    # -----------------------------------------------------------
+                    # [추가] 2. 딕셔너리에 차트 데이터 주입 (Injection)
+                    # -----------------------------------------------------------
+                    
+                    charts_data = {
+                        "speed_flow": speed_flow_data
+                    }
+                    a_data["charts_json"] = {'speed_flow': speed_flow_data}
+
                     a_data["silence_timeline_json"] = json.dumps(a_data["silence_timeline_json"])
                     a_data["good_points_json"] = json.dumps(a_data["good_points_json"])
                     a_data["bad_points_json"] = json.dumps(a_data["bad_points_json"])
@@ -356,6 +391,5 @@ class AnalysisService:
             print(f"💥 [Session Report Failed] Error: {e}")
             print(traceback.format_exc())
             return None
-
 
 analysis_service = AnalysisService()

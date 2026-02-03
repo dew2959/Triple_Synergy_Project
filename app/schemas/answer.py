@@ -14,6 +14,7 @@ class AnswerResponse(BaseModel):
     answer_id: int
     question_id: int
     video_path: str
+    stt_text: Optional[str] = None
     analysis_status: AnalysisStatus
     created_at: datetime
 
