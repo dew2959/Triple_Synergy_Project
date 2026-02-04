@@ -205,7 +205,7 @@ if full_data:
                         if charts and 'speed_flow' in charts:
                             st.markdown("##### 📈 말하기 속도 흐름")
                             
-                            speed_data = res['charts']['speed_flow']
+                            speed_data = charts['speed_flow']
                             
                             if speed_data:
                                 # 데이터프레임으로 변환

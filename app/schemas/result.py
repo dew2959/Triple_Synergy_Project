@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 from datetime import datetime
 
@@ -25,6 +25,18 @@ class VoiceResultResponse(BaseModel):
     max_wpm: Optional[int] = 0
     silence_count: Optional[int] = 0
     avg_pitch: Optional[float] = 0.0
+    max_pitch: Optional[float] = 0.0
+    voiced_ratio: Optional[float] = 0.0
+    avg_cps: Optional[float] = 0.0 
+    avg_cpm: Optional[float] = 0.0
+
+    charts_json: Optional[Dict[str, Any]] = {}
+
+    burst_ratio: Optional[float] = 0.0
+    high_speed_share: Optional[float] = 0.0
+    cv_cps: Optional[float] = 0.0
+    duration_sec: Optional[float] = 0.0
+
     feedback: Optional[str] = None
     good_points_json: Optional[List[str]] = []
     bad_points_json: Optional[List[str]] = []
