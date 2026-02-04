@@ -168,6 +168,7 @@ def get_session_full_result(
             question_id=row['question_id'],
             question_content=row['question_content'],
             answer_id=ans_id,
+            stt_text=row['stt_text'],
             video_path=row['video_path'],
             created_at=row['created_at'],
             

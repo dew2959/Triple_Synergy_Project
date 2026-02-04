@@ -68,7 +68,7 @@ class AnswerRepository:
             cur.execute(
                 """
                 SELECT 
-                    a.answer_id, a.video_path, a.created_at,
+                    a.answer_id, a.video_path, a.created_at, a.stt_text, 
                     q.question_id, q.content as question_content
                 FROM answers a
                 JOIN questions q ON a.question_id = q.question_id
