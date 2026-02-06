@@ -234,7 +234,7 @@ def run_voice(
     stt_segments: Optional[List[Dict[str, Any]]] = None,
     *,
     # silence params
-    silence_top_db: int = 30,
+    silence_top_db: int = 35,
     min_silence_sec: float = 0.25,
     # pyin params
     fmin_hz: float = 65.0,
@@ -259,6 +259,7 @@ def run_voice(
 
         pitch = _compute_pitch_stats_hz(y, sr, fmin_hz=fmin_hz, fmax_hz=fmax_hz)
         silence_count = _count_silence_intervals(y, sr, top_db=silence_top_db, min_silence_sec=min_silence_sec)
+        silence_rate_30s = silence_count / max(duration_sec, 1e-6) * 30.0
 
         # legacy WPM (호환)
         avg_wpm = _compute_avg_wpm(stt_text, duration_sec)
@@ -274,7 +275,7 @@ def run_voice(
             # compatibility
             "avg_wpm": avg_wpm,
             "max_wpm": max_wpm,
-            "silence_count": int(silence_count),
+            "silence_count": int(silence_rate_30s),
             "duration_sec": duration_sec,
             # "duration": duration_sec,  # AnalysisService 호환
 
