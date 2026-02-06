@@ -1,7 +1,7 @@
 import os
 from datetime import datetime
 import streamlit as st
-from streamlit_webrtc import webrtc_streamer, WebRtcMode
+from streamlit_webrtc import webrtc_streamer, WebRtcMode, VideoHTMLAttributes
 import aiortc
 import requests
 from pathlib import Path
@@ -329,11 +329,18 @@ if st.session_state.questions:
             key=f"user_record_{idx}_{st.session_state.recording_active}", # 상태 변화 시 재렌더링
             mode=WebRtcMode.SENDRECV,
             video_processor_factory=FaceGuideTransformer,
+
+            video_html_attrs=VideoHTMLAttributes(
+                autoPlay=True,
+                controls=False,
+                muted=True,          # ★ 핵심
+            ),
+
             media_stream_constraints={"video": True, 
                                       "audio": {
-                                            "echoCancellation": False,
-                                            "noiseSuppression": False,
-                                            "autoGainControl": False,
+                                            "echoCancellation": True,
+                                            "noiseSuppression": True,
+                                            "autoGainControl": True,
                                             "channelCount": 1,
                                             },},
             rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
