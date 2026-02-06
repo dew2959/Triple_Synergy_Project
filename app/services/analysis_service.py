@@ -5,7 +5,7 @@ from psycopg2.extensions import connection
 from app.utils.media_utils import MediaUtils
 
 # Engines
-from app.engines.visual.engine import run_visual
+from app.engines.visual.engine import visual_engine
 from app.engines.voice.engine import run_voice
 from app.engines.stt.engine import run_stt
 from app.engines.llm.engine import run_content
@@ -85,47 +85,45 @@ class AnalysisService:
                 raise  # 미디어 실패 시 분석 불가
 
             # -------------------------------------------------
-            # 1. 비주얼 분석
+            # 1. 비주얼 분석 (V3 적용)
             # -------------------------------------------------
             print(f"👁️ 비주얼 분석 시작...")
-            visual_output = run_visual(optimized_video_path)
+            
+            # 🔴 [수정] visual_engine.analyze() 호출
+            visual_output = visual_engine.analyze(optimized_video_path)
 
             if visual_output.get("error"):
                 print(f"❌ [Visual Engine Error] {visual_output['error']}")
             else:
                 try:
-                    v_metrics = visual_output.get("metrics", {})
-                    score = 100
-                    feedbacks = []
-
-                    if v_metrics.get("face_presence_ratio", 0.0) < 0.8:
-                        score -= 20
-                        feedbacks.append("화면 이탈이 잦습니다.")
-                    if v_metrics.get("head_center_ratio", 0.0) < 0.6:
-                        score -= 10
-                        feedbacks.append("고개가 중앙에서 벗어났습니다.")
-
+                    # V3 결과 추출
+                    v_score = visual_output.get("score", 0)
+                    v_feedback = visual_output.get("feedback", "")
+                    v_details = visual_output.get("details", {})
+                    details_str = json.dumps(v_details, default=str)
+                    # DB 저장용 Payload 생성
+                    # - head_center_ratio: V3에서는 미사용이므로 0.0 처리
+                    # - good_points_json: V3의 상세 데이터(details)를 저장하여 프론트엔드 차트 등에서 활용
                     visual_payload = VisualDBPayload(
                         answer_id=answer_id,
-                        score=max(0, score),
-                        head_center_ratio=v_metrics.get("head_center_ratio", 0.0),
-                        feedback=" ".join(feedbacks) or "자세가 훌륭합니다.",
-                        good_points_json=[],
-                        bad_points_json=[],
+                        score=v_score,
+                        head_center_ratio=0.0, 
+                        feedback=v_feedback,
+                        good_points_json=[details_str], # 상세 데이터 저장
+                        bad_points_json=[], # 감점 사유는 feedback 텍스트에 포함됨
                     )
+                    
                     v_data = visual_payload.model_dump()
                     v_data["good_points_json"] = json.dumps(v_data["good_points_json"])
                     v_data["bad_points_json"] = json.dumps(v_data["bad_points_json"])
 
                     visual_repo.upsert_visual_result(conn, v_data)
-                    conn.commit()  # ✅ commit
+                    conn.commit()
                     print(f"✅ 비주얼 분석 저장 완료")
 
                 except Exception as e:
-                    try:
-                        conn.rollback()
-                    except:
-                        pass
+                    try: conn.rollback()
+                    except: pass
                     print(f"❌ [Visual Save Error] 결과 저장 실패: {e}")
                     traceback.print_exc()
 
