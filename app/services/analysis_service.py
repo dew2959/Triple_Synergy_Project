@@ -1,6 +1,8 @@
 import traceback
 import json
+import math
 import os
+from typing import Optional
 from psycopg2.extensions import connection
 from app.utils.media_utils import MediaUtils
 
@@ -25,6 +27,84 @@ from app.schemas.visual import VisualDBPayload
 from app.schemas.voice import VoiceDBPayload
 from app.schemas.content import ContentDBPayload
 
+# 1. Speed Score (CPS 기반)
+def speed_score_from_cps(avg_cps: float) -> float:
+    cps = float(avg_cps)
+    # 튜닝 포인트
+    cps_min, cps_low, cps_high, cps_max = 2.5, 4.8, 6.2, 8.0
+
+    if not math.isfinite(cps): return 0.0
+    if cps <= cps_min or cps >= cps_max: return 0.0
+    if cps_low <= cps <= cps_high: return 100.0
+
+    # 느린 구간 (선형 증가)
+    if cps < cps_low:
+        return (cps - cps_min) / (cps_low - cps_min) * 100.0
+    
+    # 빠른 구간 (선형 감소)
+    return (cps_max - cps) / (cps_max - cps_high) * 100.0
+
+# 2. Burst Penalty (급발진 감점)
+def burst_penalty_from_high_speed_share(high_speed_share: Optional[float]) -> float:
+    h = 0.0 if high_speed_share is None else float(high_speed_share)
+    if not math.isfinite(h): h = 0.0
+    h = max(0.0, min(1.0, h))
+
+    h0, h1, max_pen = 0.05, 0.25, 20.0
+
+    if h <= h0: return 0.0
+    if h >= h1: return max_pen
+    return (h - h0) / (h1 - h0) * max_pen
+
+# -> 종합 Speed Score
+def compute_speed_score(avg_cps: float, high_speed_share: Optional[float]) -> float:
+    base = speed_score_from_cps(avg_cps)
+    pen = burst_penalty_from_high_speed_share(high_speed_share)
+    return max(0.0, min(100.0, base - pen))
+
+# 3. Flow Score (Voiced Ratio + Silence Count)
+def score_voiced(voiced_ratio: float) -> float:
+    vr = float(voiced_ratio)
+    if not math.isfinite(vr): return 0.0
+    vr = max(0.0, min(1.0, vr))
+
+    if vr >= 0.85: return 100.0
+    if vr >= 0.78: return 60.0 + (vr - 0.78) / (0.85 - 0.78) * 40.0
+    
+    floor = 0.60
+    if vr <= floor: return 0.0
+    return (vr - floor) / (0.78 - floor) * 60.0
+
+def score_silence_count(silence_count: int) -> float:
+    c = int(silence_count)
+    if c <= 1: return 100.0
+    if c <= 3: return 100.0 - (c - 1) / (3 - 1) * 8.0   # 1->100, 3->92
+    if c <= 6: return 92.0 - (c - 3) / (6 - 3) * 12.0   # 3->92, 6->80
+    if c <= 10: return 80.0 - (c - 6) / (10 - 6) * 20.0 # 6->80, 10->60
+    return 60.0
+
+def compute_flow_score(voiced_ratio: float, silence_count: int) -> float:
+    v = score_voiced(voiced_ratio)
+    s = score_silence_count(silence_count)
+    # 가중치: Voiced 65% + Silence 35%
+    return 0.65 * v + 0.35 * s
+
+# 4. Final Score Calculation (게이트 방식)
+def compute_final_voice_score(
+    avg_cps: float,
+    high_speed_share: Optional[float],
+    voiced_ratio: float,
+    silence_count: int,
+) -> int:
+    speed = compute_speed_score(avg_cps, high_speed_share)
+    flow = compute_flow_score(voiced_ratio, silence_count)
+
+    # Flow가 나쁘면 전체 점수를 깎음 (최대 30% 감점)
+    # flow가 0점이면 0.7배, 100점이면 1.0배
+    mult = 0.70 + 0.30 * (flow / 100.0)
+    final = speed * mult
+    
+    return int(round(max(0.0, min(100.0, final))))
 
 class AnalysisService:
     # =========================================================================
@@ -130,6 +210,7 @@ class AnalysisService:
             # -------------------------------------------------
             # 2. STT & 음성 분석
             # -------------------------------------------------
+
             print(f"🗣️ STT & 음성 분석 시작...")
             stt_output = run_stt(audio_path)
             stt_text = ""
@@ -140,21 +221,16 @@ class AnalysisService:
             else:
                 stt_text = (stt_output.get("metrics") or {}).get("text", "")
                 stt_segments = (stt_output.get("metrics") or {}).get("segments", [])
-
-                # STT 결과 저장 + ✅ commit
                 try:
-                    # repo 함수 써도 되고(아래), 지금처럼 직접 SQL도 OK
                     answer_repo.update_stt_result(conn, answer_id, stt_text)
                     conn.commit()
                     print("✅ STT 텍스트 저장 완료")
                 except Exception as e:
-                    try:
-                        conn.rollback()
-                    except:
-                        pass
-                    print(f"⚠️ [STT Save Warning] 텍스트 저장 실패 (계속 진행): {e}")
+                    try: conn.rollback()
+                    except: pass
+                    print(f"⚠️ [STT Save Warning] 텍스트 저장 실패: {e}")
 
-            # [추가] 1. 차트 데이터 미리 계산 (STT 세그먼트 활용)
+            # 차트 데이터
             speed_flow_data = calculate_cps_flow(stt_segments)
 
             voice_output = run_voice(audio_path, stt_text=stt_text, stt_segments=stt_segments)
@@ -164,108 +240,89 @@ class AnalysisService:
             else:
                 try:
                     metrics = voice_output.get("metrics", {})
-                    avg_wpm = metrics.get("avg_wpm") or 0
-                    silence_count = metrics.get("silence_count", 0)
-                    duration_sec = metrics.get("duration_sec") or 1  # duration이 없으면 1로 설정 (나누기 오류 방지)
+                    
+                    # 🟢 [데이터 추출] 엔진에서 넘어온 Raw Metrics
+                    avg_cps = float(metrics.get("avg_cps") or 0.0)
+                    high_speed_share = metrics.get("high_speed_share") # None 가능
+                    voiced_ratio = float(metrics.get("voiced_ratio") or 0.0)
+                    silence_count = int(metrics.get("silence_count") or 0)
+                    duration_sec = float(metrics.get("duration_sec") or 1.0)
 
-                    # 1. 점수 체계 세분화 (기본 점수에서 시작하여 항목별 감점)
-                    v_score = 100
-                    bad_points = []
-                    good_points = []
+                    # 🟢 [점수 계산] 새로운 로직 적용
+                    final_score = compute_final_voice_score(
+                        avg_cps=avg_cps,
+                        high_speed_share=high_speed_share,
+                        voiced_ratio=voiced_ratio,
+                        silence_count=silence_count
+                    )
 
-                    # 2. 속도(WPM) 분석: 면접 최적 속도는 110~150 WPM입니다.
-                    if 90 <= avg_wpm <= 130:
-                        good_points.append("말하기 속도가 매우 안정적입니다.")
-                    elif 60 <= avg_wpm < 90:
-                        v_score -= 5
-                        bad_points.append("말이 다소 느린 편입니다. 조금 더 활기차게 전달해 보세요.")
-                    elif avg_wpm < 60:
-                        v_score -= 15 # 감점 폭 확대
-                        bad_points.append("말이 너무 느려 지루한 인상을 줄 수 있습니다.")
-                    elif 130 < avg_wpm <= 160:
-                        v_score -= 5
-                        bad_points.append("말이 다소 빠릅니다. 중요한 부분에서 호흡을 가다듬어 주세요.")
-                    else: # 160 초과
-                        v_score -= 15
-                        bad_points.append("말이 너무 빨라 내용 전달력이 떨어집니다.")
+                    # 🟢 [피드백 생성] 점수 기반 피드백
+                    feedbacks = []
+                    
+                    # (1) 속도 피드백
+                    if avg_cps < 2.5: feedbacks.append("말하기 속도가 너무 느립니다.")
+                    elif 2.5 <= avg_cps < 4.8: feedbacks.append("말하기 속도가 다소 느린 편입니다.")
+                    elif 4.8 <= avg_cps <= 6.2: pass # 적정
+                    elif 6.2 < avg_cps <= 8.0: feedbacks.append("말하기 속도가 다소 빠릅니다.")
+                    else: feedbacks.append("말하기 속도가 너무 빠릅니다.")
 
-                    # 3. 침묵(Silence) 분석: 시간 대비 비율로 계산 (중요!)
-                    # 면접에서는 1분(60초)당 3~4번의 적절한 멈춤은 정상입니다.
-                    # 하지만 60초 기준 5번 이상 혹은 전체 시간의 20% 이상이 침묵이면 감점합니다.
-                    silence_per_minute = (silence_count / duration_sec) * 60
-                    if silence_per_minute > 8: # 1분에 8회 이상 멈춤 (잦은 끊김)
-                        v_score -= 20
-                        bad_points.append("답변 중 흐름이 자주 끊깁니다. 문장을 끝까지 맺는 연습이 필요합니다.")
-                    elif silence_per_minute > 5:
-                        v_score -= 10
-                        bad_points.append("말 사이의 공백이 잦아 답변이 다소 불안정해 보입니다.")
-                    elif 1 <= silence_per_minute <= 4:
-                        good_points.append("적절한 휴지(Pause)를 활용하여 전달력을 높였습니다.")
+                    # (2) 급발진 피드백
+                    h_share = float(high_speed_share or 0.0)
+                    if h_share >= 0.05:
+                        feedbacks.append("중간중간 말이 급격히 빨라지는 구간이 있습니다.")
 
+                    # (3) 흐름(Flow) 피드백
+                    vr_score = score_voiced(voiced_ratio)
+                    sc_score = score_silence_count(silence_count)
+                    
+                    if vr_score < 60: feedbacks.append("발화 사이의 공백이 길어 불안정해 보입니다.")
+                    if sc_score < 80: feedbacks.append("말 끊김이 잦아 전달력이 떨어질 수 있습니다.")
+
+                    feedback_text = " ".join(feedbacks) if feedbacks else "음성 전달력과 속도가 매우 훌륭합니다."
+
+                    # DB 저장
                     voice_payload = VoiceDBPayload(
                         answer_id=answer_id,
-                        score=max(0, v_score),
-                        feedback=" ".join(bad_points) if bad_points else "음성 전달력이 매우 훌륭합니다.",
+                        score=final_score,
+                        feedback=feedback_text,
                         
-                        # 1. [기존] 속도 및 침묵 (Basic)
-                        avg_wpm=int(avg_wpm),
-                        max_wpm=int(metrics.get("max_wpm", 0)),
-                        silence_count=int(silence_count),
-                        avg_silence_length=0.0,   # 기존 유지
-                        silence_timeline_json=[], # 기존 유지
+                        # Raw Data 저장
+                        avg_wpm=int(metrics.get("avg_wpm") or 0),
+                        max_wpm=int(metrics.get("max_wpm") or 0),
+                        silence_count=silence_count,
+                        avg_silence_length=0.0,
+                        silence_timeline_json=[],
+                        duration_sec=duration_sec,
+                        avg_cps=avg_cps,
+                        avg_cpm=float(metrics.get("avg_cpm") or 0.0),
+                        avg_pitch=float(metrics.get("avg_pitch") or 0.0),
+                        max_pitch=float(metrics.get("max_pitch") or 0.0),
+                        pitch_std=float(metrics.get("pitch_std") or 0.0),
+                        voiced_ratio=voiced_ratio,
+                        burst_ratio=float(metrics.get("burst_ratio") or 0.0),
+                        high_speed_share=float(metrics.get("high_speed_share") or 0.0),
+                        cv_cps=float(metrics.get("cv_cps") or 0.0),
                         
-                        # 2. [추가] 시간 및 상세 속도 (CPS/CPM)
-                        duration_sec=float(metrics.get("duration_sec", 0.0)),
-                        avg_cps=float(metrics.get("avg_cps", 0.0)),
-                        avg_cpm=float(metrics.get("avg_cpm", 0.0)),
-
-                        # 3. [추가] 피치(Pitch) 상세 분석
-                        avg_pitch=float(metrics.get("avg_pitch", 0.0)),
-                        max_pitch=float(metrics.get("max_pitch", 0.0)),
-                        pitch_std=float(metrics.get("pitch_std", 0.0)),
-                        voiced_ratio=float(metrics.get("voiced_ratio", 0.0)),
-
-                        # 4. [추가] 불안정성(Instability) 지표
-                        burst_ratio=float(metrics.get("burst_ratio", 0.0)),
-                        high_speed_share=float(metrics.get("high_speed_share", 0.0)),
-                        cv_cps=float(metrics.get("cv_cps", 0.0)),
-
-                        # 5. [JSON] 피드백 및 차트 데이터
-                        good_points_json=good_points,
-                        bad_points_json=bad_points,
-                        
-                        # Service Layer에서 계산한 차트 데이터를 여기에 주입
+                        good_points_json=[],
+                        bad_points_json=feedbacks,
                         charts_json={"speed_flow": speed_flow_data}
                     )
                     
-                    # voice_payload 생성 부분 (v_score와 feedback_text 사용)
                     a_data = voice_payload.model_dump()
-
-                    # -----------------------------------------------------------
-                    # [추가] 2. 딕셔너리에 차트 데이터 주입 (Injection)
-                    # -----------------------------------------------------------
-                    
-                    charts_data = {
-                        "speed_flow": speed_flow_data
-                    }
                     a_data["charts_json"] = {'speed_flow': speed_flow_data}
-
                     a_data["silence_timeline_json"] = json.dumps(a_data["silence_timeline_json"])
                     a_data["good_points_json"] = json.dumps(a_data["good_points_json"])
                     a_data["bad_points_json"] = json.dumps(a_data["bad_points_json"])
 
                     voice_repo.upsert_voice_result(conn, a_data)
-                    conn.commit()  # ✅ commit
-                    print(f"✅ 음성 분석 저장 완료")
+                    conn.commit()
+                    print(f"✅ 음성 분석 저장 완료 (점수: {final_score})")
 
                 except Exception as e:
-                    try:
-                        conn.rollback()
-                    except:
-                        pass
+                    try: conn.rollback()
+                    except: pass
                     print(f"❌ [Voice Save Error] 결과 저장 실패: {e}")
                     traceback.print_exc()
-
             # -------------------------------------------------
             # 3. 내용 분석
             # -------------------------------------------------
