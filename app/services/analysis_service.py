@@ -75,17 +75,28 @@ def score_voiced(voiced_ratio: float) -> float:
     if vr <= floor: return 0.0
     return (vr - floor) / (0.78 - floor) * 60.0
 
-def score_silence_count(silence_count: int) -> float:
-    c = int(silence_count)
-    if c <= 1: return 100.0
-    if c <= 3: return 100.0 - (c - 1) / (3 - 1) * 8.0   # 1->100, 3->92
-    if c <= 6: return 92.0 - (c - 3) / (6 - 3) * 12.0   # 3->92, 6->80
-    if c <= 10: return 80.0 - (c - 6) / (10 - 6) * 20.0 # 6->80, 10->60
+def score_silence_30s(silence_30s: float) -> float:
+    s = float(silence_30s)
+    if not math.isfinite(s):
+        return 0.0
+    s = max(0.0, s)
+
+    if s <= 3: 
+        return 100.0
+    if s <= 9:
+        # 3 -> 100, 9 -> 92  (8점만 감점)
+        return 100.0 - (s - 3) / (9 - 3) * 8.0
+    if s <= 18:
+        # 9 -> 92, 18 -> 80 (12점 감점)
+        return 92.0 - (s - 9) / (18 - 9) * 12.0
+    if s <= 30:
+        # 18 -> 80, 30 -> 60 (20점 감점)
+        return 80.0 - (s - 18) / (30 - 18) * 20.0
     return 60.0
 
 def compute_flow_score(voiced_ratio: float, silence_count: int) -> float:
     v = score_voiced(voiced_ratio)
-    s = score_silence_count(silence_count)
+    s = score_silence_30s(silence_count)
     # 가중치: Voiced 65% + Silence 35%
     return 0.65 * v + 0.35 * s
 
