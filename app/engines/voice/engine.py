@@ -276,7 +276,7 @@ def run_voice(
             "max_wpm": max_wpm,
             "silence_count": int(silence_count),
             "duration_sec": duration_sec,
-            "duration": duration_sec,  # AnalysisService 호환
+            # "duration": duration_sec,  # AnalysisService 호환
 
             # pitch core
             "avg_pitch": pitch["avg_pitch"],
