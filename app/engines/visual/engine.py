@@ -374,4 +374,7 @@ class VisualAnalysisEngine:
         }
 
 # 싱글톤 인스턴스
-visual_engine = VisualAnalysisEngine()
+_visual_engine = VisualAnalysisEngine()
+
+def run_visual(video_path:str) -> Dict[str, Any]:
+    return _visual_engine.analyze(video_path)

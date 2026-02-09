@@ -7,7 +7,7 @@ from psycopg2.extensions import connection
 from app.utils.media_utils import MediaUtils
 
 # Engines
-from app.engines.visual.engine import visual_engine
+from app.engines.visual.engine import run_visual
 from app.engines.voice.engine import run_voice
 from app.engines.stt.engine import run_stt
 from app.engines.llm.engine import run_content
@@ -181,7 +181,7 @@ class AnalysisService:
             print(f"👁️ 비주얼 분석 시작...")
             
             # 🔴 [수정] visual_engine.analyze() 호출
-            visual_output = visual_engine.analyze(optimized_video_path)
+            visual_output = run_visual(optimized_video_path)
 
             if visual_output.get("error"):
                 print(f"❌ [Visual Engine Error] {visual_output['error']}")
