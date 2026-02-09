@@ -7,14 +7,14 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 # LangChain
-from langchain_openai import ChatOpenAI
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_community.vectorstores import Chroma # RAG용
 
 # Common & Utils
 from app.engines.common.result import ok_result, error_result
 from app.utils.prompt_utils import sanitize_text
 from app.core.config import settings
-
 from app.schemas.content import ContentAnalysisOut
 
 # .env 로드 (단독 실행 시 필요)
@@ -27,7 +27,42 @@ except Exception:
 
 MODULE_NAME = "content"
 
+# ★ 벡터 DB 경로 (방금 만든 chroma_db 폴더를 가리켜야 함)
+# 프로젝트 루트 기준: C:\Users\user\Documents\Triple_Synergy_Project\chroma_db
+VECTOR_DB_PATH = os.path.join(PROJECT_ROOT, "chroma_db")
 
+# -------------------------------------------------------------------------
+# 1. RAG Helper Function
+# -------------------------------------------------------------------------
+def _get_rag_context(company_name: str, query: str) -> str:
+    """
+    벡터 DB에서 해당 기업의 최신 뉴스를 검색
+    """
+    # DB 폴더가 없거나 기업명이 없으면 검색 안 함
+    if not company_name or not os.path.exists(VECTOR_DB_PATH):
+        return ""
+    
+    try:
+        # DB 로드
+        vectorstore = Chroma(
+            persist_directory=VECTOR_DB_PATH, 
+            embedding_function=OpenAIEmbeddings(api_key=settings.OPENAI_API_KEY)
+        )
+        
+        # 검색 (기업명 필터링 + 유사도 검색)
+        retriever = vectorstore.as_retriever(
+            search_kwargs={"k": 3, "filter": {"company": company_name}}
+        )
+        docs = retriever.invoke(query)
+        
+        if not docs:
+            return ""
+            
+        # 검색된 뉴스 내용을 문자열로 합침
+        return "\n".join([f"- {d.page_content}" for d in docs])
+    except Exception as e:
+        print(f"⚠️ [RAG Error] {e}")
+        return ""
 
 # -------------------------------------------------------------------------
 # 2. Rule-Based Fallback (LLM 실패 시 사용)
@@ -94,6 +129,7 @@ def _rule_based_analyze(question_text: str, answer_text: str, duration_sec: Opti
 def run_content(
     answer_text: str,
     question_text: str = "",
+    target_company: str = None,  # ★ 기업명 파라미터 필수
     duration_sec: Optional[float] = None,
     model: str = "gpt-4o",  # 기본값 변경 (필요시 gpt-4o-mini 등 사용)
 ) -> Dict[str, Any]:
@@ -114,8 +150,14 @@ def run_content(
         
         metrics = {}
         used_method = "rule_based"
+        rag_context = ""
 
-        # 4) LangChain 실행
+        # 4) RAG 검색 시도
+        if api_key and target_company:
+            # 질문과 답변을 합쳐서 검색 쿼리로 사용
+            rag_context = _get_rag_context(target_company, f"{q} {a}")
+
+        # 5) LLM LangChain 실행
         if api_key:
             try:
                 llm = ChatOpenAI(
@@ -126,8 +168,17 @@ def run_content(
                 
                 prompt = ChatPromptTemplate.from_messages([
                 ("system", """
-                너는 10년 차 시니어 면접관이다.
-                지원자의 답변을 분석하여 논리성, 직무적합성, 시간관리를 평가하라.
+                너는 10년 차 시니어 면접관이고, 지원자의 잠재력을 알아보는 따뜻하지만 예리한 면접관이다.
+                지원자의 답변을 분석하여 논리성, 직무적합성, 시간관리, 그리고 최신 트렌드 관심도를 평가하라.
+                 
+                [최신 뉴스 트렌드 자료(RAG)]
+                {rag_context}
+                (※ 이 자료는 가산점 평가용입니다.)
+                 
+                [평가 가이드라인]
+                1. 기본적으로 답변이 논리적이고 직무에 적합하다면 좋은 점수(80점 내외)를 부여하세요.
+                2. 최신 트렌드 자료를 답변에 적절히 녹여냈다면, 전체적으로 5~10점의 가산점(Bonus)을 부여하여 90점 이상의 고득점을 주세요.
+                3. 만약 [최신 뉴스 트렌드 자료]가 없거나 지원자가 언급하지 않았더라도, 답변 자체의 완성도가 높다면 절대 감점하지 말고 기본 점수(70~80점)를 유지하세요.
 
                 [평가 기준]
                 - logic_score (0~100):
@@ -147,10 +198,16 @@ def run_content(
                 * 70~89: 대체로 적절하나 다소 장황/짧음, 일부 중복
                 * 40~69: 너무 길거나 너무 짧아 메시지 전달 실패, 핵심보다 배경 설명 과다
                 * 0~39: 질문 답변이 성립되지 않을 정도로 시간/전개 관리 실패
+                 
+                - trend_score (0~100):
+                * 90~100 (탁월): 제공된 뉴스 정보를 정확하게 인용하거나, 해당 기업의 최신 사업 방향을 답변에 매끄럽게 연결함. (가산점 적용 구간)
+                * 70~89 (양호): 뉴스 구체적 언급은 없으나, 업계의 일반적인 트렌드나 기술 동향을 잘 이해하고 있음. (감점 없음)
+                * 40~69 (보통): 트렌드 언급 없이 본인의 경험 위주로만 답변함.
+                * 0~39 (미흡): 기술 트렌드에 대해 잘못된 정보를 말하거나, 시대착오적인 발언을 함.
 
                 [출력 규칙]
                 - 점수는 반드시 0~100 정수
-                - feedback은 3문장 이내, '무엇을/왜/어떻게'가 포함되게
+                - feedback은 3문장 이내, '무엇을/왜/어떻게'가 포함되게. 트렌드를 잘 활용했다면 칭찬을, 활용하지 않았다면 "최신 이슈인 XX 기술도 함께 언급했다면 더 좋았을 것입니다" 정도의 부드러운 조언을 포함
                 - model_answer는 3~5문장 요약 형태
                 - recommended_keywords는 5~10개, 쉼표로 구분
                 """),
@@ -168,10 +225,14 @@ def run_content(
                 # Structured Output (JSON 파싱 자동화)
                 chain = prompt | llm.with_structured_output(ContentAnalysisOut)
                 
-                result: ContentAnalysisOut = chain.invoke({"question": q, "answer": a})
+                result = chain.invoke({
+                    "question": q, 
+                    "answer": a, 
+                    "rag_context": rag_context if rag_context else "관련 뉴스 없음"
+                })
                 
                 metrics = result.model_dump()
-                used_method = "openai_langchain"
+                used_method = "openai_rag" if rag_context else "openai_no_rag"
                 
             except Exception as e:
                 print(f"⚠️ [LangChain Engine Error] Fallback to rule-based: {e}")
@@ -190,6 +251,7 @@ def run_content(
             "feedback": metrics.get("feedback", "").strip(),
             "model_answer": metrics.get("model_answer", "").strip(),
             "keywords": keywords,  # DB 호환용 이름
+            "trend_score": _clamp_int(metrics.get("trend_score", 0)),
             
             # 메타데이터
             "method": used_method,
