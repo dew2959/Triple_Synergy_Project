@@ -284,7 +284,7 @@ class AnalysisService:
 
                     # (3) 흐름(Flow) 피드백
                     vr_score = score_voiced(voiced_ratio)
-                    sc_score = score_silence_count(silence_count)
+                    sc_score = score_silence_30s(silence_count)
                     
                     if vr_score < 60: feedbacks.append("발화 사이의 공백이 길어 불안정해 보입니다.")
                     if sc_score < 80: feedbacks.append("말 끊김이 잦아 전달력이 떨어질 수 있습니다.")

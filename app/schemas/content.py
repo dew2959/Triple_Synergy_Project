@@ -63,6 +63,10 @@ class ContentAnalysisOut(BaseModel):
     logic_score: int = Field(description="논리성 점수 (0~100)")
     job_fit_score: int = Field(description="직무 적합성 점수 (0~100)")
     time_management_score: int = Field(description="시간 관리/길이 적절성 점수 (0~100)")
+
+    # RAG 분석 결과를 받기 위해 추가한 필드
+    trend_score: int = Field(0, description="최신 뉴스 트렌드 반영 점수 (0-100)")
+
     feedback: str = Field(description="구체적인 피드백 (3문장 이내)")
     model_answer: str = Field(description="다듬어진 모범 답안 예시")
     recommended_keywords: List[str] = Field(description="답변에서 추출한 핵심 키워드 리스트")
