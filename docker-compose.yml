@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  # 1. PostgreSQL 데이터베이스
+  db:
+    image: postgres:15
+    container_name: triple_synergy_db
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: triple_synergy
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # 2. FastAPI 백엔드
+  backend:
+    build: .
+    container_name: triple_synergy_backend
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - .:/app  # 코드 수정 시 바로 반영 (개발용)
+      - ./uploads:/app/uploads # 업로드 파일 영구 저장
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://user:password@db:5432/triple_synergy
+      - OPENAI_API_KEY=${OPENAI_API_KEY} # .env 파일에서 읽음
+    depends_on:
+      - db
+
+  # 3. Streamlit 프론트엔드
+  frontend:
+    build: .
+    container_name: triple_synergy_frontend
+    command: streamlit run streamlit_app.py --server.port 8501 --server.address 0.0.0.0
+    volumes:
+      - .:/app
+    ports:
+      - "8501:8501"
+    environment:
+      # 스트림릿에서 백엔드 호출할 때 쓸 주소
+      # (브라우저에서 호출하는 게 아니라 서버 간 통신이 있다면 backend:8000 사용)
+      - BACKEND_URL=http://backend:8000 
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
