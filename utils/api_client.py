@@ -2,7 +2,7 @@ import requests
 import streamlit as st
 
 class APIClient:
-    def __init__(self, base_url="http://localhost:8000"):
+    def __init__(self, base_url="http://backend:8000"):
         self.base_url = base_url
 
     def signup(self, email, password, name=None):
