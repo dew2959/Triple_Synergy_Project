@@ -12,12 +12,8 @@ from app.engines.common.contract_v0 import assert_v0_contract
 from app.engines.stt.engine import run_stt
 from app.engines.voice.engine import run_voice
 from app.engines.llm.engine import run_content
+from app.engines.visual.engine import run_visual 
 
-# visual은 구조가 바뀌었을 수 있어서 안전하게 import
-try:
-    from app.engines.visual.engine import run_visual 
-except Exception:
-    _run_visual = None
 
 # visual_engine 싱글톤이 있을 수 있음 (네가 올린 코드엔 있음)
 try:

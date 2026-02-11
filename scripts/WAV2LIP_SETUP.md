@@ -48,11 +48,6 @@ TRIPLE_SYNERGY_PROJECT/
 
 ## 3) 팀원이 해야 할 세팅(필수)
 
-### Step 0. 가상환경 세팅 (기존대로)
-```bash
-conda env create -f environment.yml
-conda activate triple   # (실제 env 이름에 맞게)
-````
 
 ### Step 1. ffmpeg 설치 확인 (필수)
 
