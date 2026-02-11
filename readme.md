@@ -1,85 +1,123 @@
-# 🚀 Triple Synergy Project - AI 모의면접
+# Triple Synergy: AI 기반 모의면접 솔루션
 
-이 프로젝트는 Python 3.11 환경에서 동작하며, `Whisper`, `Mediapipe`, `Librosa`, `MoviePy` 등을 사용합니다.
-팀원 간 환경 충돌(DLL 오류, 버전 호환성 등)을 방지하기 위해 **반드시 아래 가이드에 따라 설치**해 주세요.
+> **멀티모달(Vision, Audio, NLP) 분석을 통한 심층 면접 코칭 서비스**
 
+![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python)
+![FastAPI](https://img.shields.io/badge/FastAPI-Backend-009688?logo=fastapi)
+![Streamlit](https://img.shields.io/badge/Streamlit-Frontend-FF4B4B?logo=streamlit)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Database-336791?logo=postgresql)
 
-## 📋 프로젝트 구조
+## 프로젝트 개요
+**Triple Synergy**는 취업 준비생들이 비대면 면접 환경에 대비할 수 있도록 돕는 AI 모의면접 플랫폼입니다.      
+사용자의 면접 영상을 분석하여 **표정(Visual), 음성(Voice), 답변 내용(Content)** 세 가지 측면에서 정량적/정성적 피드백을 제공합니다.
 
-- **백엔드**: FastAPI (Python) - `main.py`
-- **프론트엔드**: Streamlit (Python) - `streamlit_app.py`, `pages/` 폴더
-
-## 🛠️ 사전 준비 (Prerequisites)
-* **Anaconda (또는 Miniconda)** 가 설치되어 있어야 합니다.
-* 설치 시 `Skip registration`으로 가입 없이 설치 가능합니다.
+## 팀 구성 및 역할 (총 3명)    
+| 여의주 | DB 스키마 설계 및 Streamlit 기반 웹 UI 개발     
+| 박세진 | 멀티모달 파이프라인 엔진(Vision, Audio, LLM) 구축 및 최적화      
+| 임형준 | FastAPI 서버 구축 프론트엔드 & 서비스 
 
 ---
 
-## 💻 환경 설정 가이드 (Installation)
+## 전체 파이프라인 아키텍처
+사용자의 면접 영상이 업로드되면 3가지 분석 엔진이 병렬적으로 작동하며, 최종적으로 LLM이 종합 리포트를 생성합니다.
+![alt text](image.png)
 
-### 1. 가상환경 생성 (Anaconda Prompt 사용)
-**주의:** 반드시 `conda-forge` 채널을 사용하여 생성해야 충돌이 없습니다.
+---
 
-```bash
-# 가상환경 이름: triple, 파이썬 버전: 3.11
-conda create -n triple -c conda-forge python=3.11 -y
+## 기술 스택 (Tech Stack)
+- Language: Python 3.11
+- AI/ML Core:
+  - Visual: Mediapipe (Face Mesh & Expression Analysis)
+  - Audio: Librosa, Wav2Lip
+  - NLP: OpenAI Whisper (STT), LLM (Feedback Generation)
+- Backend: FastAPI, Pydantic
+- Frontend: Streamlit
+- Database: PostgreSQL
+- Environment: Docker
+
+---
+
+## 디렉토리 구조 (Directory Structure)
+모듈의 응집도를 높이기 위해 계층형 아키텍처(Layered Architecture)를 채택했습니다.
 ```
-### 2. 가상환경 활성화 
-```bash
-conda activate triple
+📦 Triple-Project 
+├── 📂 app/                     # Backend Core (FastAPI) 
+│ ├── 📂 api/                   # API Endpoints (Router) 
+│ │ └── v1/                     # API Versioning 
+│ ├── 📂 core/                  # Config, DB Connection, Security 
+│ ├── 📂 engines/               # AI Analysis Modules (핵심 로직) 
+│ │ ├── 📂 visual/              # 표정 분석 (Mediapipe) 
+│ │ ├── 📂 voice/               # 음성 분석 (Librosa) 
+│ │ ├── 📂 stt/                 # STT (Whisper) 
+│ │ └── 📂 llm/                 # 답변 피드백 (LLM)               
+│ ├── 📂 repositories/          # DB Access Layer (CRUD) 
+│ ├── 📂 schemas/               # Pydantic DTOs 
+│ ├── 📂 services/              # Business Logic Layer 
+│ └── main.py                   # App Entry Point 
+│ ├── 📂 pages/                 # Frontend Pages (Streamlit) 
+│ │ ├── 1_🏠_랜딩.py 
+│ │ ├── 2_📖_서비스상세.py
+│ │ ├── 3_📝_회원가입.py
+│ │ ├── 4_🔐_로그인.py
+│ │ ├── 5_👤_이력서.py
+│ │ ├── 6_📹_면접진행.py 
+│ │ └── 7_📊_리포트.py 
+│ └── 📂 utils/                 # Shared Utilities 
+├── streamlit_app.py            # Frontend Entry Point 
+└── requirements.txt            # Dependencies
+
 ```
-### 3. 시스템 라이브러리 설치 (DLL 오류 방지)
+---
+
+## 주요 모듈 상세 설명
+### 1. AI Engines (`app/engines/`)
+각 AI 모델은 독립적인 모듈로 구성되어 있어, 유지보수와 확장이 용이합니다.
+* **Visual Engine**: 프레임 단위로 얼굴 랜드마크를 추출하여 감정(Happy, Nervous, Neutral 등)의 점유율을 계산합니다.
+* **LLM Engine**: STT로 변환된 텍스트를 분석하여 'STAR 기법'에 근거한 피드백을 생성합니다.
+
+### 2. Service Layer (`app/services/`)
+* **Analysis Service**: 업로드된 영상에 대해 3가지 엔진(Visual, Voice, Content)을 오케스트레이션하고, 결과를 종합하여 리포트 레포지토리에 저장합니다.
+
+### 3. Repository Layer (`app/repositories/`)
+* 데이터베이스 접근 로직을 비즈니스 로직과 분리하여 테스트 용이성을 확보했습니다.
+
+
+---
+## 📡 API 명세 (Key Endpoints)
+
+| Method | Endpoint                         | Description |      
+| `POST` | `/api/v1/auth/signup`            | 사용자 회원가입 |      
+| `POST` | `/api/v1/interview/upload`       | 면접 영상 업로드 및 분석 요청      
+| `GET`  | `/api/v1/interview/report/{id}`  | 분석 완료된 상세 리포트 조회 |      
+| `POST` | `/api/v1/interview/{id}/analyze` | 특정 답변 재분석 요청 |
+
+---
+
+## 🔄 데이터 흐름 (Data Flow)
+
+1.  **Input**: 사용자가 Streamlit 웹에서 영상 업로드
+2.  **Processing**:
+    * FastAPI가 영상을 받아 `temp/`에 저장
+    * `AnalysisService`가 각 AI Engine 호출
+    * Visual/Voice/Content 분석 결과 생성
+3.  **Storage**: 분석 결과(JSON + Metrics)를 PostgreSQL에 저장
+4.  **Output**: 사용자가 리포트 페이지 접속 시, DB에서 데이터를 조회하여 시각화
+
+---
+## 서버 실행 방법 (Docker가 아닌 local vscode 환경에서의 실행)
+터미널을 2개 분리하여 실행해주세요
+
+- Backend (FastAPI) 
 ```bash
-conda install -c conda-forge ffmpeg glib gettext libffi gdk-pixbuf -y
+uvicorn app.main:app --reload --port 8000
 ```
-### 4. 파이썬 라이브러리 설치 (requirements.txt 이용)
+
+- Frontend (Streamlit)
 ```bash
-#(깃허브에서 프로젝트 받은 폴더로 이동한 뒤 실행)
-pip install -r requirements.txt
-
-##만약 requirements.txt로 설치 실패하면 이렇게 강제로 지정해서 설치하면 됨 
-pip install moviepy==1.0.3 decorator==4.4.2 "numpy<2.4" openai-whisper mediapipe librosa opencv-python supabase requests openai python-dotenv
+streamlit run streamlit_app.py
 ```
-<br />
-<br />
-     
-## 앞으로 라이브러리가 추가될 때는 규칙을 따라주세요 
-### 1. 설치한 사람 : 설치하고 나서 environment.yml를 업데이트해서 깃허브에 올립니다. 
-```bash
-conda env export > environment.yml
-```
-### 2. 나머지 팀원 : 깃허브에서 변경 사항을 받고, 다시 설치 명령어를 한 번 실행해 줍니다.
-```bash
-git pull
-conda env update -f environment.yml --prune
-```
-<br />
-<br />
+- 서비스 접속 : http://localhost:8501
+- API 문서 : http://localhost:8000/docs
 
-## .gitignore
-### 아래 파일들은 절대 GitHub에 올리지 않습니다. 
-- triple/, venv/, .venv/ (가상환경 폴더)
-- .env (API Key)
-- .vscode/ (개인 설정)
-- __pycache__/
-- 대용량 미디어 파일(.mp4, .mp3 등)
-
-
-<br />
-<br />
-
-## Third-party Notice (Wav2Lip)
-
-본 프로젝트는 **Wav2Lip** 오픈소스 저장소를 사용합니다.  
-Wav2Lip은 원저작자가 명시한 조건에 따라 **개인/연구/비상업적 목적**으로만 사용 가능합니다.  
-상업적 사용이 필요한 경우, 아래로 별도 문의해 주세요.  
-- rudrabha@synclabs.so / prajwal@synclabs.so
-
-### Citation
-Wav2Lip을 참고/사용한 경우 아래 논문을 인용해 주세요.  
-- Prajwal, K. R. et al., *A Lip Sync Expert Is All You Need for Speech to Lip Generation In the Wild*, ACM MM 2020  
-  (BibTeX는 upstream 저장소에 포함)
-
-Upstream: Wav2Lip (Rudrabha Mukhopadhyay, Prajwal K R)
-
-
+## License & Notice
+본 프로젝트는 **Wav2Lip** 오픈소스를 연구/비상업적 목적으로 활용하였습니다. (Citation: Prajwal, K. R. et al., ACM MM 2020)

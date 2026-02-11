@@ -22,6 +22,7 @@ __pycache__/
 *.wav
 *.avi
 *.mkv
+*.pdf
 output/
 downloads/
 

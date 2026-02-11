@@ -96,4 +96,4 @@ if st.button("지금 시작하기", type="primary", use_container_width=True):
     if st.session_state.get('user'):
         st.switch_page("pages/1_🏠_랜딩.py")
     else:
-        st.switch_page("pages/2_📝_회원가입.py")
+        st.switch_page("pages/3_📝_회원가입.py")

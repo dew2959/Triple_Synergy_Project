@@ -7,7 +7,7 @@ import pandas as pd
 if not st.session_state.get('token'):
     st.warning("로그인이 필요합니다.")
     if st.button("로그인 페이지로 이동"):
-        st.switch_page("pages/3_🔐_로그인.py")
+        st.switch_page("pages/4_🔐_로그인.py")
     st.stop()
 
 st.title("📊 면접 결과 리포트")
@@ -22,7 +22,7 @@ except Exception as e:
 if not sessions:
     st.info("아직 진행한 면접이 없습니다. '면접 진행' 페이지에서 모의면접을 시작해보세요!")
     if st.button("면접 하러 가기"):
-        st.switch_page("pages/7_📹_면접진행.py")
+        st.switch_page("pages/6_📹_면접진행.py")
     st.stop()
 
 # 3. 세션 선택 UI (Selectbox)
