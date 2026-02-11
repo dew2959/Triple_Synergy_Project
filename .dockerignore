@@ -9,3 +9,4 @@ venv/
 anaconda3/
 # 업로드된 데이터나 로컬 테스트용 비디오는 제외할지 결정 필요
 uploads/
+chroma_db/
