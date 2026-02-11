@@ -15,7 +15,7 @@ from app.engines.llm.engine import run_content
 
 # visual은 구조가 바뀌었을 수 있어서 안전하게 import
 try:
-    from app.engines.visual.engine import run_visual as _run_visual
+    from app.engines.visual.engine import run_visual 
 except Exception:
     _run_visual = None
 
@@ -100,9 +100,9 @@ def run_visual_compat(video_path: str) -> Dict[str, Any]:
     3) 어떤 경우든 v0 계약으로 래핑해서 반환
     """
     # 1) 기존 run_visual 시도
-    if _run_visual is not None:
+    if run_visual is not None:
         try:
-            out = _run_visual(video_path)
+            out = run_visual(video_path)
             return _wrap_visual_to_v0(out)
         except Exception as e:
             # run_visual이 존재하지만 내부에서 터지는 경우 → fallback
