@@ -180,30 +180,29 @@ class AnalysisService:
             # -------------------------------------------------
             print(f"👁️ 비주얼 분석 시작...")
             
-            # 🔴 [수정] visual_engine.analyze() 호출
             visual_output = run_visual(optimized_video_path)
 
             if visual_output.get("error"):
                 print(f"❌ [Visual Engine Error] {visual_output['error']}")
             else:
                 try:
-                    # V3 결과 추출
-                    v_score = visual_output.get("score", 0)
-                    v_feedback = visual_output.get("feedback", "")
-                    v_details = visual_output.get("details", {})
+                    v_metrics = visual_output.get("metrics") or {}
+
+                    v_score = v_metrics.get("score", 0)
+                    v_feedback = v_metrics.get("feedback", "")
+                    v_details = (visual_output.get("metrics") or {}).get("details", {})
+
                     details_str = json.dumps(v_details, default=str)
-                    # DB 저장용 Payload 생성
-                    # - head_center_ratio: V3에서는 미사용이므로 0.0 처리
-                    # - good_points_json: V3의 상세 데이터(details)를 저장하여 프론트엔드 차트 등에서 활용
+
                     visual_payload = VisualDBPayload(
                         answer_id=answer_id,
                         score=v_score,
-                        head_center_ratio=0.0, 
+                        head_center_ratio=0.0,
                         feedback=v_feedback,
-                        good_points_json=[details_str], # 상세 데이터 저장
-                        bad_points_json=[], # 감점 사유는 feedback 텍스트에 포함됨
+                        good_points_json=[details_str],
+                        bad_points_json=[],
                     )
-                    
+
                     v_data = visual_payload.model_dump()
                     v_data["good_points_json"] = json.dumps(v_data["good_points_json"])
                     v_data["bad_points_json"] = json.dumps(v_data["bad_points_json"])

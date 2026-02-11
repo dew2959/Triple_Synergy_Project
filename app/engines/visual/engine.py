@@ -7,6 +7,8 @@ from typing import Dict, Any, List
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
+from app.engines.common.result import ok_result, error_result
+
 # 프로젝트 설정 (필요 시 사용)
 from app.core.config import settings
 
@@ -376,5 +378,26 @@ class VisualAnalysisEngine:
 # 싱글톤 인스턴스
 _visual_engine = VisualAnalysisEngine()
 
-def run_visual(video_path:str) -> Dict[str, Any]:
-    return _visual_engine.analyze(video_path)
+def run_visual(video_path: str) -> Dict[str, Any]:
+    """
+    Visual 엔진의 외부 표준 인터페이스 (v0 contract)
+    - 성공: {"module":"visual","metrics":{score,feedback,details}, "events":[], "error":None}
+    - 실패: {"module":"visual","metrics":{}, "events":[], "error":{type,message}}
+    """
+    try:
+        raw = _visual_engine.analyze(video_path)  # 기존 로직 (raw v3)
+    except Exception as e:
+        # 엔진 자체 예외
+        return error_result("visual", "VisualException", str(e))
+
+    # analyze()가 {"error": "..."} 형태로 실패를 반환하는 케이스 처리
+    if isinstance(raw, dict) and raw.get("error"):
+        return error_result("visual", "VisualEngineError", str(raw.get("error")))
+
+    # 정상 raw 형태에서 metrics로 정규화
+    metrics = {
+        "score": int(raw.get("score", 0)) if isinstance(raw, dict) else 0,
+        "feedback": raw.get("feedback", "") if isinstance(raw, dict) else "",
+        "details": raw.get("details", {}) if isinstance(raw, dict) else {},
+    }
+    return ok_result("visual", metrics=metrics, events=[])
