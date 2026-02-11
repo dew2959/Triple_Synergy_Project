@@ -9,7 +9,7 @@ st.set_page_config(page_title="이력서 관리", layout="wide")
 if not st.session_state.get('token'):
     st.warning("로그인이 필요합니다.")
     if st.button("로그인 페이지로 이동"):
-        st.switch_page("pages/3_🔐_로그인.py")
+        st.switch_page("pages/4_🔐_로그인.py")
     st.stop()
 
 # 3. 세션 상태 초기화

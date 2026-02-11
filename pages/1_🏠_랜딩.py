@@ -15,11 +15,11 @@ col1, col2 = st.columns(2)
 
 with col1:
     if st.button("회원가입", use_container_width=True, type="primary"):
-        st.switch_page("pages/2_📝_회원가입.py")
+        st.switch_page("pages/3_📝_회원가입.py")
 
 with col2:
     if st.button("로그인", use_container_width=True):
-        st.switch_page("pages/3_🔐_로그인.py")
+        st.switch_page("pages/4_🔐_로그인.py")
 
 st.markdown("---")
 st.markdown("### 주요 기능")
@@ -56,4 +56,4 @@ with features_col4:
 
 st.markdown("---")
 if st.button("서비스 자세히 알아보기 →"):
-    st.switch_page("pages/5_📖_서비스상세.py")
+    st.switch_page("pages/2_📖_서비스상세.py")

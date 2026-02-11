@@ -20,7 +20,7 @@ if not os.path.exists(UPLOAD_DIR):
 # -----------------------------
 if not st.session_state.get('user') or not st.session_state.get('token'):
     st.warning("로그인이 필요한 서비스입니다.")
-    st.switch_page("pages/3_🔐_로그인.py")
+    st.switch_page("pages/4_🔐_로그인.py")
     st.stop()
 
 
@@ -102,9 +102,9 @@ if st.session_state.interview_session_id is None:
     selected_resume_id = None
     
     if not resumes:
-        st.warning("등록된 이력서가 없습니다. '온보딩' 메뉴에서 이력서를 먼저 등록해주세요.")
+        st.warning("등록된 이력서가 없습니다. '이력서' 메뉴에서 이력서를 먼저 등록해주세요.")
         if st.button("이력서 등록하러 가기"):
-            st.switch_page("pages/4_👤_온보딩.py")
+            st.switch_page("pages/5_👤_이력서.py")
         st.stop()
     else:
         # 보기 좋은 라벨 생성 함수
@@ -413,7 +413,7 @@ if st.session_state.questions:
                         if is_last_question:
                             # 분석 요청
                             requests.post(f"{API_BASE}/api/v1/analysis/session/{st.session_state.interview_session_id}", headers=headers)
-                            st.switch_page("pages/6_📊_리포트.py")
+                            st.switch_page("pages/7_📊_리포트.py")
                         else:
                             st.rerun()
                     else:
@@ -428,5 +428,5 @@ else:
     st.info("AI가 전체 면접 내용을 바탕으로 종합 리포트를 생성합니다.")
 
     if st.button("📊 결과 리포트 확인하기", type="primary", width="stretch"):
-        st.switch_page("pages/6_📊_리포트.py")
+        st.switch_page("pages/7_📊_리포트.py")
     st.stop()
