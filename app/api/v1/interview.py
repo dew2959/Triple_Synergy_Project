@@ -1,13 +1,6 @@
 import shutil
 import os
-from fastapi import APIRouter, UploadFile, File, Depends, Form, BackgroundTasks, HTTPException
-from psycopg2.extensions import connection 
-
-from app.api.deps import get_db_conn
-from app.schemas.interview import AnswerResponse, RetryAnalysisResponse
-from app.repositories.answer_repo import answer_repo
-from app.services.analysis_service import analysis_service
-from app.core.db import get_db_connection
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from app.core.config import settings
 
 from fastapi.responses import Response

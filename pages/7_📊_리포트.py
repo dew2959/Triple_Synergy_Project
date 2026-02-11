@@ -1,6 +1,6 @@
 import streamlit as st
 from utils.api_client import session_api, report_api
-from datetime import datetime
+import altair as alt
 import pandas as pd
 
 # 1. 로그인 체크
@@ -199,7 +199,7 @@ if full_data:
 
                         st.divider()
 
-                        # 2. 🌊 말하기 속도 변화 그래프 (NEW!)
+                        # 2. 🌊 말하기 속도 변화 그래프 
                         charts = res.get('charts', res.get('charts_json', {}))
 
                         if charts and 'speed_flow' in charts:
@@ -213,12 +213,39 @@ if full_data:
                                 
                                 # 차트 그리기 (Altair나 Streamlit native chart 사용)
                                 # X축: time, Y축: cps
-                                st.line_chart(df_speed, x="time", y="cps", color="#FF4B4B")
+                                def classify_speed(cps):
+                                    if cps > 6.2: return "빠름"
+                                    elif cps < 2.5: return "느림/침묵"
+                                    else: return "적절"
+
+                                df_speed['status'] = df_speed['cps'].apply(classify_speed)
+
+
+                                # Altair 차트 설정
+                                chart = alt.Chart(df_speed).mark_line(
+                                    point=True # 포인트에 색상을 입히기 위해 활성화
+                                ).encode(
+                                    x=alt.X('time:Q', title='시간 (초)'),
+                                    y=alt.Y('cps:Q', title='말하기 속도 (CPS)'),
+                                    color=alt.Color('status:N', 
+                                        scale=alt.Scale(
+                                            domain=['빠름', '적절', '느림/침묵'],
+                                            range=['#FF4B4B', '#28A745', '#FFC107'] # 빨강, 초록, 노랑
+                                        ),
+                                        legend=alt.Legend(title="상태")
+                                    ),
+                                    tooltip=['time', 'cps', 'status'] # 마우스 호버 시 상세 데이터 표시
+                                ).properties(
+                                    width=700,
+                                    height=300
+                                ).interactive() # 확대/축소/이동 가능
+
+                                st.altair_chart(chart, use_container_width=True)
                                 
                                 st.caption("""
-                                - **가로축(X):** 답변 시간 (초)
-                                - **세로축(Y):** 순간 말하기 속도 (CPS)
-                                - 그래프가 **너무 높게 치솟으면** 급하게 말한 구간, **바닥에 닿으면** 침묵하거나 버벅인 구간입니다.
+                                - 🟢 **적절**: 안정적인 속도로 전달력이 좋은 구간입니다.
+                                - 🔴 **빠름**: 말이 급해져 전달력이 떨어질 수 있는 구간입니다.
+                                - 🟡 **느림/침묵**: 답변이 막혔거나 너무 천천히 말한 구간입니다.
                                 """)
                             else:
                                 st.info("그래프를 그릴 충분한 데이터가 없습니다.")

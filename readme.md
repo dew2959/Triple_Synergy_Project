@@ -109,7 +109,7 @@
 
 - Backend (FastAPI) 
 ```bash
-uvicorn app.main:app --reload --port 8000
+uvicorn main:app --reload --port 8000
 ```
 
 - Frontend (Streamlit)
