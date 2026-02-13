@@ -204,49 +204,68 @@ if full_data:
 
                         if charts and 'speed_flow' in charts:
                             st.markdown("##### 📈 말하기 속도 흐름")
-                            
                             speed_data = charts['speed_flow']
                             
                             if speed_data:
                                 # 데이터프레임으로 변환
                                 df_speed = pd.DataFrame(speed_data)
-                                
-                                # 차트 그리기 (Altair나 Streamlit native chart 사용)
-                                # X축: time, Y축: cps
-                                def classify_speed(cps):
-                                    if cps > 6.2: return "빠름"
-                                    elif cps < 2.5: return "느림/침묵"
-                                    else: return "적절"
 
-                                df_speed['status'] = df_speed['cps'].apply(classify_speed)
+                                # -------------------------------------------------------
+                                # [설정] 적정 속도 범위 (CPS 기준)
+                                # -------------------------------------------------------
+                                SAFE_MIN = 2.5
+                                SAFE_MAX = 6.2
 
+                                # 기본 차트 설정 (X축 공유)
+                                base = alt.Chart(df_speed).encode(
+                                    x=alt.X('time:Q', title='시간 (초)')
+                                )
 
-                                # Altair 차트 설정
-                                chart = alt.Chart(df_speed).mark_line(
-                                    point=True # 포인트에 색상을 입히기 위해 활성화
+                                # 1. 배경에 깔릴 '적정 구간' (형광펜 효과)
+                                # 데이터의 시간축을 따라 y(3.5) ~ y2(5.0) 영역을 칠합니다.
+                                band = base.mark_area(
+                                    opacity=0.3,    # 투명도 (연하게)
+                                    color="#68CAF7" 
                                 ).encode(
-                                    x=alt.X('time:Q', title='시간 (초)'),
+                                    y=alt.datum(SAFE_MIN),  # 적정 최소값
+                                    y2=alt.datum(SAFE_MAX)  # 적정 최대값
+                                )
+
+                                # 2. 실제 속도 그래프 (선)
+                                line = base.mark_line(
+                                    color="#000000", 
+                                    strokeWidth=2
+                                ).encode(
                                     y=alt.Y('cps:Q', title='말하기 속도 (CPS)'),
-                                    color=alt.Color('status:N', 
-                                        scale=alt.Scale(
-                                            domain=['빠름', '적절', '느림/침묵'],
-                                            range=['#FF4B4B', '#28A745', '#FFC107'] # 빨강, 초록, 노랑
-                                        ),
-                                        legend=alt.Legend(title="상태")
-                                    ),
-                                    tooltip=['time', 'cps', 'status'] # 마우스 호버 시 상세 데이터 표시
-                                ).properties(
-                                    width=700,
+                                    tooltip=['time', 'cps']
+                                )
+                                
+                                # 3. 데이터 포인트 (마우스 오버용 점)
+                                points = base.mark_circle(size=60).encode(
+                                    y='cps:Q',
+                                    tooltip=['time', 'cps'],
+                                    # (옵션) 적정 범위를 벗어나면 점 색깔을 붉게 표시하고 싶다면 아래 주석 해제
+                                    # color=alt.condition(
+                                    #     (alt.datum.cps >= SAFE_MIN) & (alt.datum.cps <= SAFE_MAX),
+                                    #     alt.value('#333333'),  # 적정하면 검은점
+                                    #     alt.value('#FF4B4B')   # 벗어나면 빨간점
+                                    # )
+                                    color=alt.value("#006EFF")
+                                )
+
+                                # 차트 합치기 (배경 -> 선 -> 점 순서)
+                                chart = (band + line + points).properties(
+                                    width='container',
                                     height=300
-                                ).interactive() # 확대/축소/이동 가능
+                                ).interactive()
 
                                 st.altair_chart(chart, use_container_width=True)
                                 
-                                st.caption("""
-                                - 🟢 **적절**: 안정적인 속도로 전달력이 좋은 구간입니다.
-                                - 🔴 **빠름**: 말이 급해져 전달력이 떨어질 수 있는 구간입니다.
-                                - 🟡 **느림/침묵**: 답변이 막혔거나 너무 천천히 말한 구간입니다.
+                                st.caption(f"""
+                                - **하늘색 배경**: 면접관이 듣기 편안한 적정 속도 구간 ({SAFE_MIN}~{SAFE_MAX} CPS)입니다.
+                                - 그래프 선이 이 하늘색 구간 안에 머무를수록 안정적으로 말하고 있다는 뜻입니다.
                                 """)
+
                             else:
                                 st.info("그래프를 그릴 충분한 데이터가 없습니다.")
                                 

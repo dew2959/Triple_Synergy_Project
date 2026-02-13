@@ -76,32 +76,33 @@ if st.session_state.interview_session_id is None:
     # ---------------------------------------------------------
     # (1) 이력서 목록 불러오기 (캐싱 적용)
     # ---------------------------------------------------------
-    # @st.cache_data(show_spinner=False, ttl=60)
-    # def fetch_my_resumes(token):
-    #     try:
-    #         r = requests.get(f"{API_BASE}/api/v1/resume/", headers={"Authorization": f"Bearer {token}"}, timeout=5)
-    #         if r.status_code == 200:
-    #             return r.json()
-    #         return []
-    #     except:
-    #         return []
+    @st.cache_data(show_spinner=False, ttl=60)
     def fetch_my_resumes(token):
         try:
-            url = f"{API_BASE}/api/v1/resume/" # 슬래시(/) 유무 확인 중요
-            st.write(f"📡 요청 URL: {url}") # 화면에 URL 출력
-            
-            r = requests.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=5)
-            
+            r = requests.get(f"{API_BASE}/api/v1/resume/", headers={"Authorization": f"Bearer {token}"}, timeout=5)
             if r.status_code == 200:
                 return r.json()
-            else:
-                # 에러가 나면 화면에 붉은색으로 이유를 출력
-                st.error(f"❌ 불러오기 실패! 상태 코드: {r.status_code}") 
-                st.error(f"서버 응답: {r.text}")
-                return []
-        except Exception as e:
-            st.error(f"⚠️ 연결 오류 발생: {e}")
             return []
+        except:
+            return []
+    # 디버깅용 상세 버전
+    # def fetch_my_resumes(token):
+    #     try:
+    #         url = f"{API_BASE}/api/v1/resume/" # 슬래시(/) 유무 확인 중요
+    #         st.write(f"📡 요청 URL: {url}") # 화면에 URL 출력
+            
+    #         r = requests.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=5)
+            
+    #         if r.status_code == 200:
+    #             return r.json()
+    #         else:
+    #             # 에러가 나면 화면에 붉은색으로 이유를 출력
+    #             st.error(f"❌ 불러오기 실패! 상태 코드: {r.status_code}") 
+    #             st.error(f"서버 응답: {r.text}")
+    #             return []
+    #     except Exception as e:
+    #         st.error(f"⚠️ 연결 오류 발생: {e}")
+    #         return []
 
 
     with st.spinner("내 이력서 목록을 불러오는 중..."):
