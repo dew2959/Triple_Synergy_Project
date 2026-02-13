@@ -36,20 +36,29 @@ with st.form("login_form"):
         if not email or not password:
             st.error("이메일과 비밀번호를 입력해주세요.")
         else:
+            login_success = False
+            
             try:
                 result = auth_api.login(email, password)
+                
+                # 토큰 및 유저 정보 저장
                 st.session_state.token = result["access_token"]
-                # user_info가 없을 경우를 대비해 기본값이나 이메일을 넣어둡니다.
                 st.session_state.user = {
-            "email": email
-        }
+                    "email": email
+                }
+                
                 st.success("로그인 성공!")
-                st.info("프로필 설정 페이지로 이동합니다...")
-                st.switch_page("pages/5_이력서.py")
-
+                # 여기서 바로 이동하지 않고 성공 플래그만 세웁니다.
+                login_success = True 
 
             except Exception as e:
-                st.error(f"로그인 실패: {repr(e)}")
+                st.error(f"로그인 실패: {e}")
+            
+            # try-except 블록이 끝난 후, 성공했다면 페이지 이동
+            # (이제 이동 신호가 에러로 잡히지 않습니다)
+            if login_success:
+                st.info("프로필 설정 페이지로 이동합니다...")
+                st.switch_page("pages/5_👤_이력서.py")
 
 
 st.markdown("---")
