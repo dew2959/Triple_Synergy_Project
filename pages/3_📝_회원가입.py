@@ -31,8 +31,8 @@ with st.form("signup_form"):
                 result = auth_api.signup(email, password, name if name else None)
                 st.success("회원가입이 완료되었습니다!")
                 st.session_state.user = result
-                st.info("프로필 설정 페이지로 이동합니다...")
-                st.switch_page("pages/5_👤_이력서.py")
+                st.info("로그인 페이지로 이동합니다...")
+                st.switch_page("pages/3_🔐_로그인.py")
             except Exception as e:
                 st.error(f"회원가입 실패: {str(e)}")
 

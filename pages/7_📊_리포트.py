@@ -280,8 +280,24 @@ if full_data:
                         res = ans['content']
 
                         # 1. 실제 STT 텍스트 표시 (피드백 위쪽에 배치)
-                        st.markdown("##### 💬 실제 답변 내용 (STT)")
-                        st.code(ans.get('stt_text', "답변 텍스트를 불러올 수 없습니다."), language=None)
+                        # st.markdown("##### 💬 실제 답변 내용 (STT)")
+                        # st.code(ans.get('stt_text', "답변 텍스트를 불러올 수 없습니다."), language=None)
+                        stt_text = ans.get('stt_text', "답변 텍스트를 불러올 수 없습니다.")
+
+                        st.markdown(
+                            f"""
+                            <div style="
+                                background-color: #F0F2F6; 
+                                padding: 15px; 
+                                border-radius: 10px; 
+                                line-height: 1.6; 
+                                color: #31333F;
+                            ">
+                                {stt_text}
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )
 
                         st.divider() # 구분선 추가
                         
@@ -296,7 +312,9 @@ if full_data:
                             final_score = int((l_score + j_score + t_score) / 3)
 
                         st.write(f"**종합 점수:** {final_score}점")
-                        st.write(f"**논리성:** {res.get('logic_score', 0)} / **직무적합도:** {res.get('job_fit_score', 0)} / **시간관리:** {res.get('time_management_score', 0)}")
+                        st.write(f"**논리성:** {res.get('logic_score', 0)}/ 100")
+                        st.write(f"**직무적합도:** {res.get('job_fit_score', 0)} / 100")
+                        st.write(f"**시간관리:** {res.get('time_management_score', 0)} / 100")
                         
                         st.markdown("**AI 피드백**")
                         st.info(res.get('feedback', '피드백이 없습니다.'))
