@@ -43,6 +43,8 @@ services:
       # 스트림릿에서 백엔드 호출할 때 쓸 주소
       # (브라우저에서 호출하는 게 아니라 서버 간 통신이 있다면 backend:8000 사용)
       - BACKEND_URL=http://backend:8000 
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
     depends_on:
       - backend
 
