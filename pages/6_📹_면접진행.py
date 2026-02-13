@@ -44,7 +44,7 @@ def display_analysis_failure(answer_id, error_msg="네트워크 연결이 불안
 # -----------------------------
 # 3. API 및 세션 초기화
 # -----------------------------
-API_BASE = "http://localhost:8000"
+API_BASE = "http://triple_synergy_backend:8000"
 headers = {"Authorization": f"Bearer {st.session_state.get('token')}"}
 
 st.title("📹 AI 실시간 모의면접")
