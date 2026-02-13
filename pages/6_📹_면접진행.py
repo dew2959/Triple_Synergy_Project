@@ -1,13 +1,16 @@
 import os
 from datetime import datetime
 import streamlit as st
-from streamlit_webrtc import webrtc_streamer, WebRtcMode, VideoHTMLAttributes
+from streamlit_webrtc import webrtc_streamer, WebRtcMode, VideoHTMLAttributes, RTCConfiguration
 import aiortc
 import requests
 from pathlib import Path
 import time
 from app.utils.camera_utils import FaceGuideTransformer
 
+RTC_CONFIG = RTCConfiguration(
+    {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
+)
 # -----------------------------
 # 0. 파일 저장 설정
 # -----------------------------
@@ -166,6 +169,7 @@ if st.session_state.interview_session_id is None:
 
         webrtc_streamer(
             key="camera_test",
+            rtc_configuration=RTC_CONFIG,
             mode=WebRtcMode.SENDRECV,
             video_processor_factory=FaceGuideTransformer,
             media_stream_constraints={"video": True, "audio": False},
@@ -346,6 +350,7 @@ if st.session_state.questions:
         # 1. WebRTC 스트리머
         webrtc_ctx = webrtc_streamer(
             key=f"user_record_{idx}_{st.session_state.recording_active}", # 상태 변화 시 재렌더링
+            rtc_configuration=RTC_CONFIG,
             mode=WebRtcMode.SENDRECV,
             video_processor_factory=FaceGuideTransformer,
 
@@ -362,7 +367,6 @@ if st.session_state.questions:
                                             "autoGainControl": True,
                                             "channelCount": 1,
                                             },},
-            rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
             # recording_active가 True일 때만 recorder 연결
             in_recorder_factory=recorder_factory if st.session_state.recording_active else None,
             async_processing=True,
