@@ -1,4 +1,4 @@
-import shutil
+import time
 import os
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from app.core.config import settings
@@ -70,6 +70,13 @@ async def generate_lipsync(
     out_path = os.path.join(tmp_dir, "wav2lip_stdout.txt")
 
     try:
+        # ✅ ADD: 전체/구간별 타이밍 측정 시작
+        t_all0 = time.perf_counter()
+        t_download = 0.0
+        t_ffmpeg1  = 0.0
+        t_w2l      = 0.0
+        t_enhance  = 0.0
+
         face_path = os.path.join(tmp_dir, "face.jpg")
         audio_in_path = os.path.join(tmp_dir, "audio_input")
         audio_wav_path = os.path.join(tmp_dir, "audio.wav")
@@ -77,11 +84,13 @@ async def generate_lipsync(
 
         # 2) avatar_url 이미지 다운로드
         try:
+            t0 = time.perf_counter()  # ✅ ADD
             img_res = requests.get(avatar_url, timeout=15)
             if img_res.status_code != 200:
                 raise HTTPException(status_code=400, detail=f"Failed to fetch avatar_url: {img_res.status_code}")
             with open(face_path, "wb") as f:
                 f.write(img_res.content)
+            t_download = time.perf_counter() - t0  # ✅ ADD
         except HTTPException:
             raise
         except Exception as e:
@@ -94,7 +103,9 @@ async def generate_lipsync(
 
         # 4) ffmpeg로 16k mono wav 변환
         cmd_ffmpeg = ["ffmpeg", "-y", "-i", audio_in_path, "-ac", "1", "-ar", "16000", audio_wav_path]
+        t0 = time.perf_counter()      # ✅ ADD
         r1 = subprocess.run(cmd_ffmpeg, capture_output=True, text=True)
+        t_enhance = time.perf_counter() - t0  # ✅ ADD
 
         with open(os.path.join(tmp_dir, "ffmpeg_stderr.txt"), "w", encoding="utf-8") as f:
             f.write(r1.stderr or "")
@@ -120,7 +131,9 @@ async def generate_lipsync(
         if nosmooth:
             cmd_w2l.append("--nosmooth")
 
+        t0 = time.perf_counter()
         r2 = subprocess.run(cmd_w2l, cwd=str(WAV2LIP_DIR), capture_output=True, text=True)
+        t_enhance = time.perf_counter() - t0
 
         with open(err_path, "w", encoding="utf-8") as f:
             f.write(r2.stderr or "")
@@ -142,7 +155,9 @@ async def generate_lipsync(
             "-c:a", "copy",
             enhanced_mp4_path
         ]
+        t0 = time.perf_counter()  # ✅ ADD
         r3 = subprocess.run(cmd_enhance, capture_output=True, text=True)
+        t_enhance = time.perf_counter() - t0  # ✅ ADD
 
         # 후처리 로그 저장(디버그용)
         with open(os.path.join(tmp_dir, "enhance_stderr.txt"), "w", encoding="utf-8") as f:
@@ -155,7 +170,16 @@ async def generate_lipsync(
         # 7) mp4 반환
         with open(final_mp4_path, "rb") as f:
             mp4_bytes = f.read()
-        return Response(content=mp4_bytes, media_type="video/mp4")
+
+            # ✅ ADD: 전체 처리 시간 계산 + 헤더로 내려주기
+            t_all = time.perf_counter() - t_all0
+            resp = Response(content=mp4_bytes, media_type="video/mp4")
+            resp.headers["X-Total-Server-MS"] = f"{t_all*1000:.1f}"
+            resp.headers["X-AvatarDownload-MS"] = f"{t_download*1000:.1f}"
+            resp.headers["X-FFmpegWav-MS"] = f"{t_ffmpeg1*1000:.1f}"
+            resp.headers["X-Wav2Lip-MS"] = f"{t_w2l*1000:.1f}"
+            resp.headers["X-Enhance-MS"] = f"{t_enhance*1000:.1f}"
+            return resp
 
     finally:
         # 디버깅 끝나면 아래 주석 풀어서 temp 폴더 정리해도 됨
