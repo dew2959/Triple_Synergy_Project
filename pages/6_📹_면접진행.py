@@ -317,6 +317,9 @@ if st.session_state.questions:
                         "nosmooth": "false",
                     }
 
+                    # ✅ REPLACE START: lipsync 요청 + 속도 측정/표시
+                    t0 = time.perf_counter()
+
                     ls_res = requests.post(
                         f"{API_BASE}/api/v1/interview/lipsync",
                         headers=headers,
@@ -325,10 +328,33 @@ if st.session_state.questions:
                         timeout=180,
                     )
 
+                    t1 = time.perf_counter()
+                    e2e_ms = (t1 - t0) * 1000
+
+                    # ✅ 서버에서 내려준 타이밍 헤더 읽기 (백엔드에 헤더 추가한 경우에만 값이 있음)
+                    server_total = ls_res.headers.get("X-Total-Server-MS")
+                    server_w2l   = ls_res.headers.get("X-Wav2Lip-MS")
+                    server_ffwav = ls_res.headers.get("X-FFmpegWav-MS")
+                    server_enh   = ls_res.headers.get("X-Enhance-MS")
+                    server_dl    = ls_res.headers.get("X-AvatarDownload-MS")
+
+                    # ✅ 화면에 표시(원하면 expander로 숨겨도 됨)
+                    with st.expander("⏱️ 립싱크 속도 측정(디버그)", expanded=False):
+                        st.write(f"- **E2E(클라이언트 체감)**: {e2e_ms:.1f} ms")
+                        if server_total is not None:
+                            st.write(f"- **Server Total**: {server_total} ms")
+                            st.write(f"  - Wav2Lip: {server_w2l} ms")
+                            st.write(f"  - FFmpeg wav: {server_ffwav} ms")
+                            st.write(f"  - Enhance: {server_enh} ms")
+                            st.write(f"  - Avatar DL: {server_dl} ms")
+                        else:
+                            st.write("- 서버 타이밍 헤더 없음(백엔드에 헤더 패치 적용 필요)")
+
                     if ls_res.status_code == 200:
                         st.session_state[lipsync_key] = ls_res.content  # mp4 bytes
                     else:
                         st.warning(f"립싱크 실패: {ls_res.status_code} {ls_res.text[:300]}")
+                    # ✅ REPLACE END
                 except Exception as e:
                     st.warning(f"립싱크 Error: {e}")
 

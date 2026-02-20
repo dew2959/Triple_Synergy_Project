@@ -32,9 +32,9 @@ with st.form("signup_form"):
                 st.success("회원가입이 완료되었습니다!")
                 st.session_state.user = result
                 st.info("로그인 페이지로 이동합니다...")
-                st.switch_page("pages/3_🔐_로그인.py")
+                st.switch_page("pages/4_🔐_로그인.py")
             except Exception as e:
                 st.error(f"회원가입 실패: {str(e)}")
 
 st.markdown("---")
-st.markdown("이미 계정이 있으신가요? [로그인 페이지로 이동](pages/3_🔐_로그인.py)")
+st.markdown("이미 계정이 있으신가요? [로그인 페이지로 이동](pages/4_🔐_로그인.py)")
