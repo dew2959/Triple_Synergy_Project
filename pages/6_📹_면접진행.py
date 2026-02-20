@@ -6,19 +6,37 @@ import aiortc
 import requests
 from pathlib import Path
 import time
+import importlib
 from app.utils.camera_utils import FaceGuideTransformer
-from twilio.rest import Client
+
+
+def _is_true_env(name: str, default: str = "false") -> bool:
+    return os.environ.get(name, default).strip().lower() in {"1", "true", "yes", "on"}
+
 
 def get_ice_servers():
+    fallback_stun = [{"urls": ["stun:stun.l.google.com:19302"]}]
+
+    if not _is_true_env("USE_TWILIO_TURN", "false"):
+        return fallback_stun
+
     try:
+        twilio_rest = importlib.import_module("twilio.rest")
+        Client = getattr(twilio_rest, "Client")
+
         account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
         auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
+        if not account_sid or not auth_token:
+            print("Twilio SID/TOKEN 없음 (기본 STUN 사용)")
+            return fallback_stun
+
         client = Client(account_sid, auth_token)
         token = client.tokens.create()
-        return token.ice_servers
+        ice_servers = token.ice_servers or []
+        return ice_servers if ice_servers else fallback_stun
     except Exception as e:
         print(f"Twilio 연동 실패 (기본 STUN 사용): {e}")
-        return [{"urls": ["stun:stun.l.google.com:19302"]}]
+        return fallback_stun
 
 # RTC_CONFIG 수정 (함수 호출)
 RTC_CONFIG = RTCConfiguration(

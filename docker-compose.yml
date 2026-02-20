@@ -65,6 +65,7 @@ services:
       - BACKEND_URL=http://backend:8000 
       - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
       - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
+      - USE_TWILIO_TURN=${USE_TWILIO_TURN:-false}
     depends_on:
       - backend
 
