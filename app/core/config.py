@@ -34,6 +34,13 @@ class Settings(BaseSettings):
     # =========================================================
     OPENAI_API_KEY: str = "" # .env에서 자동으로 읽어옴
 
+    # =========================================================
+    # 5. GPU 원격 실행 설정 (MVP: 직접 HTTP 호출)
+    # =========================================================
+    GPU_REMOTE_ENABLED: bool = False
+    GPU_BASE_URL: str = ""
+    GPU_TIMEOUT_SEC: int = 180
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

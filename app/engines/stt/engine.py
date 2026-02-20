@@ -5,6 +5,8 @@ from typing import Any, Dict, List, Optional
 import whisper  # openai-whisper (pip package)
 
 from app.engines.common.result import ok_result, error_result
+from app.core.config import settings
+from app.services.gpu_remote_service import remote_run_stt
 
 MODULE_NAME = "stt"
 
@@ -82,6 +84,21 @@ def run_stt(
     - 실패: error_result("stt", ..., ...)  (예외 터뜨리지 않음)
     """
     try:
+        # ----------------------------------------------------
+        # 0) 원격 GPU STT 우선 시도 (MVP)
+        # - 실패하면 로컬 Whisper로 fallback
+        # ----------------------------------------------------
+        if settings.GPU_REMOTE_ENABLED and settings.GPU_BASE_URL:
+            try:
+                remote_out = remote_run_stt(
+                    audio_path=audio_path,
+                    model_name=model_name,
+                    language=language,
+                )
+                return remote_out
+            except Exception as remote_err:
+                print(f"⚠️ [Remote STT Fallback] {remote_err}")
+
         # ----------------------------------------------------
         # 1) 입력 검증: audio_path 유효성 및 파일 존재/크기 체크
         # ----------------------------------------------------

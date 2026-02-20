@@ -12,6 +12,7 @@ import tempfile
 import subprocess
 import requests
 from pathlib import Path
+from app.services.gpu_remote_service import remote_generate_lipsync
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]  # app/api/v1/interview.py 기준: project root
 WAV2LIP_DIR = PROJECT_ROOT / "third_party" / "Wav2Lip"
@@ -59,6 +60,20 @@ async def generate_lipsync(
     - avatar_url: 면접관 이미지 URL (Streamlit에서 쓰는 URL 그대로)
     - 반환: video/mp4 바이너리
     """
+    if settings.GPU_REMOTE_ENABLED and settings.GPU_BASE_URL:
+        try:
+            audio_bytes = await audio.read()
+            remote_mp4 = remote_generate_lipsync(
+                audio_bytes=audio_bytes,
+                filename=audio.filename or "audio.mp3",
+                avatar_url=avatar_url,
+                resize_factor=resize_factor,
+                nosmooth=nosmooth,
+            )
+            return Response(content=remote_mp4, media_type="video/mp4")
+        except Exception as remote_err:
+            print(f"⚠️ [Remote LipSync Fallback] {remote_err}")
+
     if not WAV2LIP_DIR.exists():
         raise HTTPException(status_code=500, detail=f"WAV2LIP_DIR not found: {WAV2LIP_DIR}")
     if not WAV2LIP_CKPT.exists():
