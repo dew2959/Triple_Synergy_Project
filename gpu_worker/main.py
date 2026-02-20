@@ -148,7 +148,7 @@ async def lipsync(
             "--wav2lip_batch_size",
             "128",
             "--face_det_batch_size",
-            "1",
+            "4",
             "--fps",
             "15",
         ]
