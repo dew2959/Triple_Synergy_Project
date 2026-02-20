@@ -2,6 +2,7 @@ import streamlit as st
 from utils.api_client import session_api, report_api
 import altair as alt
 import pandas as pd
+import time
 
 # 1. 로그인 체크
 if not st.session_state.get('token'):
@@ -11,6 +12,39 @@ if not st.session_state.get('token'):
     st.stop()
 
 st.title("📊 면접 결과 리포트")
+# ✅ REPLACE START: sidebar perf panel (report)
+with st.sidebar:
+    st.markdown("### ⏱️ 성능 측정 요약(질문별)")
+    perf_by_q = st.session_state.get("perf_by_q", {})
+
+    if not perf_by_q:
+        st.caption("측정 데이터가 없습니다.")
+    else:
+        for qno in sorted(perf_by_q.keys()):
+            rec = perf_by_q[qno]
+            st.markdown(f"**Q{qno}**")
+
+            if rec.get("tts_s") is not None:
+                st.write(f"- TTS: **{rec['tts_s']:.2f}s**")
+
+            lip = rec.get("lip")
+            if isinstance(lip, dict):
+                st.write(f"- LIP E2E: **{lip.get('e2e_s', 0):.2f}s**")
+                if lip.get("svr_s") is not None: st.write(f"  - SVR: {lip['svr_s']:.2f}s")
+                if lip.get("w2l_s") is not None: st.write(f"  - W2L: {lip['w2l_s']:.2f}s")
+                if lip.get("wav_s") is not None: st.write(f"  - WAV: {lip['wav_s']:.2f}s")
+                if lip.get("enh_s") is not None: st.write(f"  - ENH: {lip['enh_s']:.2f}s")
+                if lip.get("dl_s")  is not None: st.write(f"  - DL:  {lip['dl_s']:.2f}s")
+
+            st.divider()
+
+    # 전체(Report)
+    perf_sum = st.session_state.get("perf_summary", {})
+    report_s = perf_sum.get("report_s")
+    st.markdown("### ✅ 전체")
+    st.write(f"- REPORT: **{report_s:.1f}s**" if report_s is not None else "- REPORT: (대기/없음)")
+    st.caption("※ 값이 안 보이면 해당 단계가 아직 실행되지 않았거나 캐시로 건너뛴 경우입니다.")
+# ✅ REPLACE END
 
 # 2. 세션 목록 불러오기
 try:
@@ -67,6 +101,18 @@ if full_data:
             
     # (B) 분석 완료 -> 리포트 표시
     else:
+        # ✅ ADD: 리포트 생성 완료까지 총 시간(클라이언트 체감) 표시
+        if "report_start_ts" in st.session_state:
+            elapsed_s = time.perf_counter() - st.session_state["report_start_ts"]
+
+            # ✅ 요약 저장(고정 패널에 표시)
+            if "perf_summary" not in st.session_state:
+                st.session_state.perf_summary = {}
+            st.session_state.perf_summary["report_s"] = round(elapsed_s, 3)
+
+            del st.session_state["report_start_ts"]
+            st.rerun()
+
         # --- 종합 평가 섹션 ---
         st.markdown("---")
         st.header("🏆 종합 평가")

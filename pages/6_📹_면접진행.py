@@ -7,22 +7,22 @@ import requests
 from pathlib import Path
 import time
 from app.utils.camera_utils import FaceGuideTransformer
-from twilio.rest import Client
+# from twilio.rest import Client
 
-def get_ice_servers():
-    try:
-        account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
-        auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
-        client = Client(account_sid, auth_token)
-        token = client.tokens.create()
-        return token.ice_servers
-    except Exception as e:
-        print(f"Twilio 연동 실패 (기본 STUN 사용): {e}")
-        return [{"urls": ["stun:stun.l.google.com:19302"]}]
+# def get_ice_servers():
+#     try:
+#         account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
+#         auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
+#         client = Client(account_sid, auth_token)
+#         token = client.tokens.create()
+#         return token.ice_servers
+#     except Exception as e:
+#         print(f"Twilio 연동 실패 (기본 STUN 사용): {e}")
+#         return [{"urls": ["stun:stun.l.google.com:19302"]}]
 
 # RTC_CONFIG 수정 (함수 호출)
 RTC_CONFIG = RTCConfiguration(
-    {"iceServers": get_ice_servers()}
+    # {"iceServers": get_ice_servers()}
 )
 # -----------------------------
 # 0. 파일 저장 설정
@@ -82,6 +82,14 @@ if "video_path" not in st.session_state:
     st.session_state.video_path = None
 if "audio_path" not in st.session_state:
     st.session_state.audio_path = None
+# ✅ REPLACE START: perf state init
+if "perf_summary" not in st.session_state:
+    st.session_state.perf_summary = {}   # 전체(Report 등) 요약용
+if "perf_log" not in st.session_state:
+    st.session_state.perf_log = []       # (옵션) 이벤트 로그
+if "perf_by_q" not in st.session_state:
+    st.session_state.perf_by_q = {}      # ✅ 질문 번호(Q1~)별 기록
+# ✅ REPLACE END
 
 # ==============================================================================
 # 4. [면접 시작 전] 이력서 선택 및 세션 생성 화면
@@ -208,6 +216,9 @@ if st.session_state.interview_session_id is None:
                         sess_data = res.json()
                         session_id = sess_data['session_id']
                         st.session_state.interview_session_id = session_id
+                        st.session_state.perf_summary = {}
+                        st.session_state.perf_log = []
+                        st.session_state.perf_by_q = {}
                         status.write("✅ 세션 생성 완료!")
                         
                         # 2. 질문 목록 조회 (생성된 세션 ID로 조회)
@@ -251,6 +262,7 @@ if st.session_state.questions:
 
     current_q = questions[idx]
     q_id = current_q['question_id']
+    q_key = idx + 1  # ✅ 화면용 질문 번호(Q1~Qn)
     
     # ---------------------------------------------------------
     # 🎯 화면 상단: 진행률 및 질문 정보
@@ -259,6 +271,38 @@ if st.session_state.questions:
     st.progress(progress, text=f"진행률 {idx + 1}/{len(questions)}")
     
     st.divider()
+
+    with st.sidebar:
+        st.markdown("### ⏱️ 성능 측정(진행 중)")
+        st.caption(f"현재: Q{q_key} / {len(questions)}")
+        perf_by_q = st.session_state.get("perf_by_q", {})
+
+        if not perf_by_q:
+            st.caption("아직 측정된 값이 없습니다.")
+        else:
+            for qno in sorted(perf_by_q.keys()):
+                rec = perf_by_q[qno]
+                st.markdown(f"**Q{qno}**")
+
+                if rec.get("tts_s") is not None:
+                    st.write(f"- TTS: **{rec['tts_s']:.2f}s**")
+
+                lip = rec.get("lip")
+                if isinstance(lip, dict):
+                    st.write(f"- LIP E2E: **{lip.get('e2e_s', 0):.2f}s**")
+                    if lip.get("svr_s") is not None: st.write(f"  - SVR: {lip['svr_s']:.2f}s")
+                    if lip.get("w2l_s") is not None: st.write(f"  - W2L: {lip['w2l_s']:.2f}s")
+                    if lip.get("wav_s") is not None: st.write(f"  - WAV: {lip['wav_s']:.2f}s")
+                    if lip.get("enh_s") is not None: st.write(f"  - ENH: {lip['enh_s']:.2f}s")
+                    if lip.get("dl_s")  is not None: st.write(f"  - DL:  {lip['dl_s']:.2f}s")
+
+                st.divider()
+
+        # 전체 요약(Report)
+        report_s = st.session_state.get("perf_summary", {}).get("report_s")
+        st.markdown("### ✅ 전체")
+        st.write(f"- REPORT: **{report_s:.1f}s**" if report_s is not None else "- REPORT: (대기/없음)")
+    # ✅ ADD END
 
     # ---------------------------------------------------------
     # 🎯 화면 2분할 (왼쪽: AI 면접관 / 오른쪽: 내 모습)
@@ -274,13 +318,13 @@ if st.session_state.questions:
     with col_ai:
         st.markdown("### 👩‍💼 AI 면접관")
         
-        # ✅ 7_면접 진행.py (with col_ai 블록 안) : TTS -> Wav2Lip(lipsync) -> video 재생
+        # ✅ 6_면접 진행.py (with col_ai 블록 안) : TTS -> Wav2Lip(lipsync) -> video 재생
         # - interviewer_img(URL) 그대로 백엔드에 전달
         # - 질문별로 mp3/mp4를 session_state에 캐시해서 중복 생성 방지
 
         # (1) 면접관 이미지 (이미 너 코드에 있던 거)
         interviewer_img = "https://cdn.pixabay.com/photo/2024/05/26/11/40/business-8788636_1280.jpg"
-        #st.image(interviewer_img, caption="AI 면접관", width="stretch")
+        st.image(interviewer_img, caption="AI 면접관", width="stretch")
 
 
 
@@ -289,82 +333,112 @@ if st.session_state.questions:
         if tts_key not in st.session_state:
             with st.spinner("면접관이 질문을 읽는 중입니다..."):
                 try:
+                    t0 = time.perf_counter()
+
                     tts_res = requests.post(
                         f"{API_BASE}/api/v1/interview/tts",
                         headers=headers,
                         json={"text": current_q["content"], "voice": "nova"},
                         timeout=30,
                     )
+                    t1 = time.perf_counter()
+                    tts_e2e = t1 - t0
+                    # ✅ ADD: save per-question
+                    st.session_state.perf_by_q.setdefault(q_key, {})
+                    st.session_state.perf_by_q[q_key]["tts_s"] = round(tts_e2e, 3)
+
+                    st.session_state.perf_summary["tts_s"] = round(tts_e2e, 3)
+                    st.session_state.perf_log.append({"type": "tts", "q_id": q_id, "sec": tts_e2e, "ok": tts_res.status_code == 200})
+
                     if tts_res.status_code == 200:
                         st.session_state[tts_key] = tts_res.content  # mp3 bytes
+                        st.toast(f"⏱️ TTS E2E {tts_e2e:.2f}s", icon="⏱️")
                     else:
                         st.warning("음성 데이터를 불러오지 못했습니다.")
+                        st.toast(f"❌ TTS failed ({tts_res.status_code})", icon="❌")
+                        st.session_state.perf_summary["tts_s"] = round(tts_e2e, 3)
+                        st.session_state.perf_log.append({"type": "tts", "q_id": q_id, "sec": tts_e2e})
 
                 except Exception as e:
                     st.warning(f"TTS Error: {e}")
 
-        # (4) ✅ Wav2Lip(mp4) 생성 + 캐시
-        lipsync_key = f"lipsync_mp4_{current_q['question_id']}"
-        if tts_key in st.session_state and lipsync_key not in st.session_state:
-            with st.spinner("면접관 립싱크 영상을 생성 중입니다..."):
-                try:
-                    files = {
-                        "audio": ("tts.mp3", st.session_state[tts_key], "audio/mpeg")
-                    }
-                    data = {
-                        "avatar_url": interviewer_img,  # ✅ 여기!
-                        "resize_factor": "1",
-                        "nosmooth": "false",
-                    }
+        # # (4) ✅ Wav2Lip(mp4) 생성 + 캐시
+        # lipsync_key = f"lipsync_mp4_{current_q['question_id']}"
+        # if tts_key in st.session_state and lipsync_key not in st.session_state:
+        #     with st.spinner("면접관 립싱크 영상을 생성 중입니다..."):
+        #         try:
+        #             files = {
+        #                 "audio": ("tts.mp3", st.session_state[tts_key], "audio/mpeg")
+        #             }
+        #             data = {
+        #                 "avatar_url": interviewer_img,  # ✅ 여기!
+        #                 "resize_factor": "1",
+        #                 "nosmooth": "false",
+        #             }
 
-                    # ✅ REPLACE START: lipsync 요청 + 속도 측정/표시
-                    t0 = time.perf_counter()
+        #             # ✅ REPLACE START: lipsync 요청 + 속도 측정/표시
+        #             t0 = time.perf_counter()
 
-                    ls_res = requests.post(
-                        f"{API_BASE}/api/v1/interview/lipsync",
-                        headers=headers,
-                        files=files,
-                        data=data,
-                        timeout=180,
-                    )
+        #             ls_res = requests.post(
+        #                 f"{API_BASE}/api/v1/interview/lipsync",
+        #                 headers=headers,
+        #                 files=files,
+        #                 data=data,
+        #                 timeout=180,
+        #             )
 
-                    t1 = time.perf_counter()
-                    e2e_ms = (t1 - t0) * 1000
+        #             t1 = time.perf_counter()
+        #             e2e = t1 - t0
 
-                    # ✅ 서버에서 내려준 타이밍 헤더 읽기 (백엔드에 헤더 추가한 경우에만 값이 있음)
-                    server_total = ls_res.headers.get("X-Total-Server-MS")
-                    server_w2l   = ls_res.headers.get("X-Wav2Lip-MS")
-                    server_ffwav = ls_res.headers.get("X-FFmpegWav-MS")
-                    server_enh   = ls_res.headers.get("X-Enhance-MS")
-                    server_dl    = ls_res.headers.get("X-AvatarDownload-MS")
+        #             # 서버 타이밍 헤더(백엔드 패치 적용 시에만 값 존재)
+        #             server_total = ls_res.headers.get("X-Total-Server-MS")
+        #             server_w2l   = ls_res.headers.get("X-Wav2Lip-MS")
+        #             server_ffwav = ls_res.headers.get("X-FFmpegWav-MS")
+        #             server_enh   = ls_res.headers.get("X-Enhance-MS")
+        #             server_dl    = ls_res.headers.get("X-AvatarDownload-MS")
+        #             st.session_state.perf_by_q.setdefault(q_key, {})
+        #             st.session_state.perf_by_q[q_key]["lip"] = {
+        #                 "e2e_s": round(e2e, 3),
+        #                 "svr_s": round(float(server_total)/1000, 3) if server_total else None,
+        #                 "w2l_s": round(float(server_w2l)/1000, 3) if server_w2l else None,
+        #                 "wav_s": round(float(server_ffwav)/1000, 3) if server_ffwav else None,
+        #                 "enh_s": round(float(server_enh)/1000, 3) if server_enh else None,
+        #                 "dl_s":  round(float(server_dl)/1000, 3) if server_dl else None,
+        #             }
+        #             st.session_state.perf_log.append({
+        #                 "type": "lip",
+        #                 "q_id": q_id,
+        #                 "e2e_s": e2e,
+        #                 "svr_s": float(server_total)/1000 if server_total else None,
+        #                 "w2l_s": float(server_w2l)/1000 if server_w2l else None,
+        #             })
+        #             st.session_state.perf_summary["lip"] = st.session_state.perf_by_q[q_key]["lip"]
 
-                    # ✅ 화면에 표시(원하면 expander로 숨겨도 됨)
-                    with st.expander("⏱️ 립싱크 속도 측정(디버그)", expanded=False):
-                        st.write(f"- **E2E(클라이언트 체감)**: {e2e_ms:.1f} ms")
-                        if server_total is not None:
-                            st.write(f"- **Server Total**: {server_total} ms")
-                            st.write(f"  - Wav2Lip: {server_w2l} ms")
-                            st.write(f"  - FFmpeg wav: {server_ffwav} ms")
-                            st.write(f"  - Enhance: {server_enh} ms")
-                            st.write(f"  - Avatar DL: {server_dl} ms")
-                        else:
-                            st.write("- 서버 타이밍 헤더 없음(백엔드에 헤더 패치 적용 필요)")
+        #             if ls_res.status_code == 200:
+        #                 st.session_state[lipsync_key] = ls_res.content  # mp4 bytes
 
-                    if ls_res.status_code == 200:
-                        st.session_state[lipsync_key] = ls_res.content  # mp4 bytes
-                    else:
-                        st.warning(f"립싱크 실패: {ls_res.status_code} {ls_res.text[:300]}")
-                    # ✅ REPLACE END
-                except Exception as e:
-                    st.warning(f"립싱크 Error: {e}")
+        #                 parts = [f"E2E {e2e:.2f}s"]
+        #                 if server_total: parts.append(f"SVR {float(server_total)/1000:.2f}s")
+        #                 if server_w2l:   parts.append(f"W2L {float(server_w2l)/1000:.2f}s")
+        #                 if server_ffwav: parts.append(f"WAV {float(server_ffwav)/1000:.2f}s")
+        #                 if server_enh:   parts.append(f"ENH {float(server_enh)/1000:.2f}s")
+        #                 if server_dl:    parts.append(f"DL {float(server_dl)/1000:.2f}s")
 
-        # (5) ✅ mp4 있으면 영상 재생, 없으면 오디오 fallback
-        if lipsync_key in st.session_state:
-            st.video(st.session_state[lipsync_key], format="video/mp4", autoplay=True)
-        elif tts_key in st.session_state:
-            st.audio(st.session_state[tts_key], format="audio/mp3", autoplay=True)
-        else:
-            st.warning("오디오/영상 생성에 실패했습니다.")
+        #                 st.toast("⏱️ LIP " + " | ".join(parts), icon="⏱️")
+
+        #             else:
+        #                 st.warning(f"립싱크 실패: {ls_res.status_code} {ls_res.text[:300]}")
+        #                 st.toast(f"❌ Lipsync failed ({ls_res.status_code})", icon="❌")
+        #         except Exception as e:
+        #             st.warning(f"립싱크 Error: {e}")
+
+        # # (5) ✅ mp4 있으면 영상 재생, 없으면 오디오 fallback
+        # if lipsync_key in st.session_state:
+        #     st.video(st.session_state[lipsync_key], format="video/mp4", autoplay=True)
+        # elif tts_key in st.session_state:
+        #     st.audio(st.session_state[tts_key], format="audio/mp3", autoplay=True)
+        # else:
+        #     st.warning("오디오/영상 생성에 실패했습니다.")
 
 
     # ==========================
@@ -472,8 +546,15 @@ if st.session_state.questions:
                         st.session_state.current_question_idx += 1
                         
                         if is_last_question:
-                            # 분석 요청
+                            # ✅ 리포트 생성 총 시간 측정 시작
+                            st.session_state["report_start_ts"] = time.perf_counter()
+
+                            # (선택) 분석 요청 POST 자체 시간도 보고 싶으면
+                            t0 = time.perf_counter()
                             requests.post(f"{API_BASE}/api/v1/analysis/session/{st.session_state.interview_session_id}", headers=headers)
+                            t1 = time.perf_counter()
+                            st.toast(f"⏱️ Analysis request E2E {(t1-t0):.2f}s", icon="⏱️")
+
                             st.switch_page("pages/7_📊_리포트.py")
                         else:
                             st.rerun()

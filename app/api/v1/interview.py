@@ -175,6 +175,7 @@ async def generate_lipsync(
             t_all = time.perf_counter() - t_all0
             resp = Response(content=mp4_bytes, media_type="video/mp4")
             resp.headers["X-Total-Server-MS"] = f"{t_all*1000:.1f}"
+            
             resp.headers["X-AvatarDownload-MS"] = f"{t_download*1000:.1f}"
             resp.headers["X-FFmpegWav-MS"] = f"{t_ffmpeg1*1000:.1f}"
             resp.headers["X-Wav2Lip-MS"] = f"{t_w2l*1000:.1f}"
