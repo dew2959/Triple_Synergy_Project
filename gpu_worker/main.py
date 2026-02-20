@@ -118,6 +118,8 @@ async def lipsync(
             f.write(img_res.content)
 
         audio_bytes = await audio.read()
+        if not audio_bytes:
+            raise HTTPException(status_code=400, detail="audio payload is empty")
         with open(audio_in_path, "wb") as f:
             f.write(audio_bytes)
 
@@ -155,7 +157,9 @@ async def lipsync(
 
         w2l_proc = subprocess.run(cmd_w2l, cwd=str(WAV2LIP_DIR), capture_output=True, text=True)
         if w2l_proc.returncode != 0 or not os.path.exists(out_mp4_path):
-            raise HTTPException(status_code=500, detail="wav2lip inference failed")
+            w2l_err = (w2l_proc.stderr or "").strip()
+            tail = w2l_err[-1000:] if w2l_err else "(no stderr)"
+            raise HTTPException(status_code=500, detail=f"wav2lip inference failed: {tail}")
 
         with open(out_mp4_path, "rb") as f:
             mp4_bytes = f.read()

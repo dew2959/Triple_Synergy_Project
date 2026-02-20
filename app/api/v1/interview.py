@@ -61,9 +61,12 @@ async def generate_lipsync(
     - avatar_url: 면접관 이미지 URL (Streamlit에서 쓰는 URL 그대로)
     - 반환: video/mp4 바이너리
     """
+    audio_bytes = await audio.read()
+    if not audio_bytes:
+        raise HTTPException(status_code=400, detail="audio payload is empty")
+
     if settings.GPU_REMOTE_ENABLED and settings.GPU_BASE_URL:
         try:
-            audio_bytes = await audio.read()
             remote_mp4 = remote_generate_lipsync(
                 audio_bytes=audio_bytes,
                 filename=audio.filename or "audio.mp3",
@@ -105,7 +108,6 @@ async def generate_lipsync(
             raise HTTPException(status_code=400, detail=f"avatar_url download error: {e}")
 
         # 3) 오디오 저장
-        audio_bytes = await audio.read()
         with open(audio_in_path, "wb") as f:
             f.write(audio_bytes)
 
