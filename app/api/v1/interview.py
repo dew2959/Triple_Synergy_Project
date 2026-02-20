@@ -11,6 +11,7 @@ import sys
 import tempfile
 import subprocess
 import requests
+import time
 from pathlib import Path
 from app.services.gpu_remote_service import remote_generate_lipsync
 from pathlib import Path as _Path
@@ -61,18 +62,29 @@ async def generate_lipsync(
     - avatar_url: 면접관 이미지 URL (Streamlit에서 쓰는 URL 그대로)
     - 반환: video/mp4 바이너리
     """
+    req_t0 = time.perf_counter()
     audio_bytes = await audio.read()
     if not audio_bytes:
         raise HTTPException(status_code=400, detail="audio payload is empty")
+    audio_size = len(audio_bytes)
 
     if settings.GPU_REMOTE_ENABLED and settings.GPU_BASE_URL:
         try:
+            remote_t0 = time.perf_counter()
             remote_mp4 = remote_generate_lipsync(
                 audio_bytes=audio_bytes,
                 filename=audio.filename or "audio.mp3",
                 avatar_url=avatar_url,
                 resize_factor=resize_factor,
                 nosmooth=nosmooth,
+            )
+            remote_ms = (time.perf_counter() - remote_t0) * 1000
+            total_ms = (time.perf_counter() - req_t0) * 1000
+            print(
+                f"[LIPSYNC_TIMING][backend-remote] "
+                f"audio_bytes={audio_size} response_bytes={len(remote_mp4)} "
+                f"remote_call_ms={remote_ms:.1f} total_ms={total_ms:.1f}",
+                flush=True,
             )
             return Response(content=remote_mp4, media_type="video/mp4")
         except Exception as remote_err:
@@ -113,7 +125,9 @@ async def generate_lipsync(
 
         # 4) ffmpeg로 16k mono wav 변환
         cmd_ffmpeg = ["ffmpeg", "-y", "-i", audio_in_path, "-ac", "1", "-ar", "16000", audio_wav_path]
+        ffmpeg_t0 = time.perf_counter()
         r1 = subprocess.run(cmd_ffmpeg, capture_output=True, text=True)
+        ffmpeg_ms = (time.perf_counter() - ffmpeg_t0) * 1000
 
         with open(os.path.join(tmp_dir, "ffmpeg_stderr.txt"), "w", encoding="utf-8") as f:
             f.write(r1.stderr or "")
@@ -141,7 +155,9 @@ async def generate_lipsync(
         if nosmooth:
             cmd_w2l.append("--nosmooth")
 
+        w2l_t0 = time.perf_counter()
         r2 = subprocess.run(cmd_w2l, cwd=str(WAV2LIP_DIR), capture_output=True, text=True)
+        w2l_ms = (time.perf_counter() - w2l_t0) * 1000
 
         with open(err_path, "w", encoding="utf-8") as f:
             f.write(r2.stderr or "")
@@ -163,7 +179,9 @@ async def generate_lipsync(
             "-c:a", "copy",
             enhanced_mp4_path
         ]
+        enhance_t0 = time.perf_counter()
         r3 = subprocess.run(cmd_enhance, capture_output=True, text=True)
+        encode_ms = (time.perf_counter() - enhance_t0) * 1000
 
         # 후처리 로그 저장(디버그용)
         with open(os.path.join(tmp_dir, "enhance_stderr.txt"), "w", encoding="utf-8") as f:
@@ -176,6 +194,14 @@ async def generate_lipsync(
         # 7) mp4 반환
         with open(final_mp4_path, "rb") as f:
             mp4_bytes = f.read()
+        response_bytes = len(mp4_bytes)
+        total_ms = (time.perf_counter() - req_t0) * 1000
+        print(
+            f"[LIPSYNC_TIMING][backend-local] "
+            f"audio_bytes={audio_size} response_bytes={response_bytes} "
+            f"convert_ms={ffmpeg_ms:.1f} inference_ms={w2l_ms:.1f} encode_ms={encode_ms:.1f} total_ms={total_ms:.1f}",
+            flush=True,
+        )
         return Response(content=mp4_bytes, media_type="video/mp4")
 
     finally:

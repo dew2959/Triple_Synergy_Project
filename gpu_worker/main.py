@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 import requests
@@ -104,6 +105,7 @@ async def lipsync(
         raise HTTPException(status_code=500, detail=f"WAV2LIP_CHECKPOINT not found: {WAV2LIP_CKPT}")
 
     tmp_dir = tempfile.mkdtemp(prefix="gpu_wav2lip_")
+    req_t0 = time.perf_counter()
     try:
         face_path = os.path.join(tmp_dir, "face.jpg")
         audio_suffix = Path(audio.filename or "audio.mp3").suffix or ".mp3"
@@ -120,11 +122,14 @@ async def lipsync(
         audio_bytes = await audio.read()
         if not audio_bytes:
             raise HTTPException(status_code=400, detail="audio payload is empty")
+        audio_size = len(audio_bytes)
         with open(audio_in_path, "wb") as f:
             f.write(audio_bytes)
 
         cmd_ffmpeg = ["ffmpeg", "-y", "-i", audio_in_path, "-ac", "1", "-ar", "16000", audio_wav_path]
+        ffmpeg_t0 = time.perf_counter()
         ffmpeg_proc = subprocess.run(cmd_ffmpeg, capture_output=True, text=True)
+        ffmpeg_ms = (time.perf_counter() - ffmpeg_t0) * 1000
         if ffmpeg_proc.returncode != 0 or not os.path.exists(audio_wav_path):
             ffmpeg_err = (ffmpeg_proc.stderr or "").strip()
             tail = ffmpeg_err[-500:] if ffmpeg_err else "(no stderr)"
@@ -155,7 +160,9 @@ async def lipsync(
         if nosmooth:
             cmd_w2l.append("--nosmooth")
 
+        w2l_t0 = time.perf_counter()
         w2l_proc = subprocess.run(cmd_w2l, cwd=str(WAV2LIP_DIR), capture_output=True, text=True)
+        w2l_ms = (time.perf_counter() - w2l_t0) * 1000
         if w2l_proc.returncode != 0 or not os.path.exists(out_mp4_path):
             w2l_err = (w2l_proc.stderr or "").strip()
             tail = w2l_err[-1000:] if w2l_err else "(no stderr)"
@@ -163,6 +170,14 @@ async def lipsync(
 
         with open(out_mp4_path, "rb") as f:
             mp4_bytes = f.read()
+        response_bytes = len(mp4_bytes)
+        total_ms = (time.perf_counter() - req_t0) * 1000
+        print(
+            f"[LIPSYNC_TIMING][gpu-worker] "
+            f"audio_bytes={audio_size} response_bytes={response_bytes} "
+            f"convert_ms={ffmpeg_ms:.1f} inference_ms={w2l_ms:.1f} encode_ms=0.0 total_ms={total_ms:.1f}",
+            flush=True,
+        )
         return Response(content=mp4_bytes, media_type="video/mp4")
     finally:
         try:
