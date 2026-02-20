@@ -23,6 +23,7 @@
 
 - Worker: `http://localhost:8100/health`
 - Backend: `http://localhost:8000/`
+- GPU 확인: `http://localhost:8100/health/gpu`
 
 ## 4) 동작 방식
 
@@ -48,6 +49,9 @@
   - `docker-compose up -d --build gpu_worker`
 4. 헬스체크
   - `curl http://localhost:8100/health`
+5. GPU 사용 가능 여부 확인
+  - `curl http://localhost:8100/health/gpu`
+  - 기대값: `torch_cuda_available: true`, `torch_device_count: 1 이상`, `nvidia_smi_ok: true`
 
 ### B. 로컬(=앱 서버)에서
 

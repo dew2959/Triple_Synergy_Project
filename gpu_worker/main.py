@@ -26,6 +26,44 @@ def health() -> dict:
     return {"status": "ok"}
 
 
+@app.get("/health/gpu")
+def health_gpu() -> dict:
+    try:
+        import torch
+
+        cuda_available = bool(torch.cuda.is_available())
+        device_count = int(torch.cuda.device_count()) if cuda_available else 0
+        device_name = torch.cuda.get_device_name(0) if cuda_available and device_count > 0 else None
+
+        nvidia_smi_ok = False
+        nvidia_smi_out = ""
+        try:
+            proc = subprocess.run(
+                ["nvidia-smi", "--query-gpu=name,driver_version,memory.total", "--format=csv,noheader"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            nvidia_smi_ok = proc.returncode == 0
+            nvidia_smi_out = (proc.stdout or proc.stderr or "").strip()
+        except Exception as e:
+            nvidia_smi_out = str(e)
+
+        return {
+            "status": "ok",
+            "torch_cuda_available": cuda_available,
+            "torch_device_count": device_count,
+            "torch_device_name": device_name,
+            "nvidia_smi_ok": nvidia_smi_ok,
+            "nvidia_smi": nvidia_smi_out,
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e),
+        }
+
+
 @app.post("/stt")
 async def stt(
     audio: UploadFile = File(...),

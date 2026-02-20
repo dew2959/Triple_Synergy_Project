@@ -45,6 +45,7 @@ services:
       - ./uploads:/app/uploads
     ports:
       - "8100:8100"
+    gpus: all
     environment:
       - GPU_REMOTE_ENABLED=false
       - OPENAI_API_KEY=${OPENAI_API_KEY}
