@@ -13,6 +13,7 @@ import subprocess
 import requests
 from pathlib import Path
 from app.services.gpu_remote_service import remote_generate_lipsync
+from pathlib import Path as _Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]  # app/api/v1/interview.py 기준: project root
 WAV2LIP_DIR = PROJECT_ROOT / "third_party" / "Wav2Lip"
@@ -86,7 +87,8 @@ async def generate_lipsync(
 
     try:
         face_path = os.path.join(tmp_dir, "face.jpg")
-        audio_in_path = os.path.join(tmp_dir, "audio_input")
+        audio_suffix = _Path(audio.filename or "audio.mp3").suffix or ".mp3"
+        audio_in_path = os.path.join(tmp_dir, f"audio_input{audio_suffix}")
         audio_wav_path = os.path.join(tmp_dir, "audio.wav")
         out_mp4_path = os.path.join(tmp_dir, "result.mp4")
 
@@ -117,7 +119,9 @@ async def generate_lipsync(
             f.write(r1.stdout or "")
 
         if r1.returncode != 0 or not os.path.exists(audio_wav_path):
-            raise HTTPException(status_code=500, detail=f"ffmpeg failed. See logs in: {tmp_dir}")
+            ffmpeg_err = (r1.stderr or "").strip()
+            tail = ffmpeg_err[-500:] if ffmpeg_err else "(no stderr)"
+            raise HTTPException(status_code=500, detail=f"ffmpeg failed. {tail}")
 
         # 5) wav2lip 실행
         cmd_w2l = [

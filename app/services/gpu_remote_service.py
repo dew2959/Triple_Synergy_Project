@@ -84,5 +84,7 @@ def remote_generate_lipsync(
         data=data,
         timeout=settings.GPU_TIMEOUT_SEC,
     )
-    response.raise_for_status()
+    if response.status_code >= 400:
+        detail = (response.text or "").strip()
+        raise RuntimeError(f"GPU /lipsync failed: status={response.status_code}, detail={detail}")
     return response.content

@@ -106,7 +106,8 @@ async def lipsync(
     tmp_dir = tempfile.mkdtemp(prefix="gpu_wav2lip_")
     try:
         face_path = os.path.join(tmp_dir, "face.jpg")
-        audio_in_path = os.path.join(tmp_dir, "audio_input")
+        audio_suffix = Path(audio.filename or "audio.mp3").suffix or ".mp3"
+        audio_in_path = os.path.join(tmp_dir, f"audio_input{audio_suffix}")
         audio_wav_path = os.path.join(tmp_dir, "audio.wav")
         out_mp4_path = os.path.join(tmp_dir, "result.mp4")
 
@@ -123,7 +124,9 @@ async def lipsync(
         cmd_ffmpeg = ["ffmpeg", "-y", "-i", audio_in_path, "-ac", "1", "-ar", "16000", audio_wav_path]
         ffmpeg_proc = subprocess.run(cmd_ffmpeg, capture_output=True, text=True)
         if ffmpeg_proc.returncode != 0 or not os.path.exists(audio_wav_path):
-            raise HTTPException(status_code=500, detail="ffmpeg failed before wav2lip inference")
+            ffmpeg_err = (ffmpeg_proc.stderr or "").strip()
+            tail = ffmpeg_err[-500:] if ffmpeg_err else "(no stderr)"
+            raise HTTPException(status_code=500, detail=f"ffmpeg failed before wav2lip inference: {tail}")
 
         cmd_w2l = [
             sys.executable,
